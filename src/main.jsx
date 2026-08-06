@@ -552,9 +552,17 @@ function SongList({
             ]
               .filter(Boolean)
               .join(" ")}
+            onClick={() => onSelect(song)}
           >
             <span className="song-number">{index + 1}</span>
-            <button className="song-main" type="button" onClick={() => onSelect(song)}>
+            <button
+              className="song-main"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelect(song);
+              }}
+            >
               {isEditing ? (
                 <input
                   className="song-inline-input"
@@ -568,7 +576,7 @@ function SongList({
             </button>
             <span className="song-meta">{mode === "split" ? `${song.partsReady}/6` : song.scores.length}</span>
             {editable && (
-              <div className="song-actions">
+              <div className="song-actions" onClick={(event) => event.stopPropagation()}>
                 {isEditing ? (
                   <>
                     <button
