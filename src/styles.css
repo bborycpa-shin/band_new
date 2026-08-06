@@ -391,7 +391,12 @@ h1 {
 }
 
 .split-hidden-audios {
-  display: none;
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
 }
 
 .split-row-actions {
@@ -897,6 +902,44 @@ input[type="range"] {
   .preset-row button {
     min-width: 44px;
     height: 28px;
+  }
+
+  .photo-viewer {
+    padding: 54px 14px 76px;
+  }
+
+  .photo-viewer img {
+    width: auto;
+    height: auto;
+    max-width: calc(100vw - 28px);
+    max-height: calc(100vh - 150px);
+    max-height: calc(100svh - 150px);
+    object-fit: contain;
+  }
+
+  .viewer-close {
+    top: 14px;
+    right: 14px;
+    width: 40px;
+    height: 40px;
+  }
+
+  .viewer-nav {
+    width: 42px;
+    height: 62px;
+  }
+
+  .viewer-nav.prev {
+    left: 8px;
+  }
+
+  .viewer-nav.next {
+    right: 8px;
+  }
+
+  .viewer-caption {
+    bottom: 18px;
+    max-width: calc(100vw - 28px);
   }
 
   .panel {
