@@ -259,7 +259,8 @@ h1 {
 
 .song-actions button,
 .mini-file-button,
-.track-upload-button {
+.track-upload-button,
+.track-delete-button {
   display: inline-grid;
   place-items: center;
   min-width: 28px;
@@ -335,12 +336,18 @@ h1 {
 
 .track-row {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) 44px 34px;
+  grid-template-columns: 58px minmax(0, 1fr) 44px 34px 34px;
   align-items: center;
   gap: 10px;
   padding: 8px;
   border-radius: 8px;
   background: #f8fafd;
+}
+
+.track-delete-button:disabled {
+  color: #b9c4d5;
+  background: #f3f6fb;
+  cursor: not-allowed;
 }
 
 .track-row label {

@@ -27,10 +27,12 @@ import {
   manifestFolder,
   moveDisplayName,
   removeDisplayName,
+  saveFileManifest,
   setDisplayName,
   setManifestOrder
 } from "./lib/fileManifest";
 import { loadSupabaseSongs } from "./lib/loadSupabaseSongs";
+import { createEmptySplitSong, loadSupabaseSplitSongs } from "./lib/loadSupabaseSplitSongs";
 import { instruments, sampleSongs } from "./data/songs";
 import "./styles.css";
 
@@ -93,11 +95,18 @@ function newSongFolderName() {
   return `song-${Date.now()}`;
 }
 
+function newSplitFolderName() {
+  return `split-${Date.now()}`;
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState("play");
   const [appSongs, setAppSongs] = useState([]);
   const [libraryStatus, setLibraryStatus] = useState("불러오는 중");
   const [selectedId, setSelectedId] = useState("");
+  const [splitSongs, setSplitSongs] = useState([]);
+  const [splitLibraryStatus, setSplitLibraryStatus] = useState("불러오는 중");
+  const [selectedSplitId, setSelectedSplitId] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -115,6 +124,10 @@ function App() {
     () => appSongs.find((song) => song.id === selectedId) ?? appSongs[0] ?? emptySong,
     [appSongs, selectedId]
   );
+  const selectedSplitSong = useMemo(
+    () => splitSongs.find((song) => song.id === selectedSplitId) ?? splitSongs[0] ?? createEmptySplitSong(),
+    [splitSongs, selectedSplitId]
+  );
 
   async function refreshLibrary(nextSelectedId = selectedId) {
     const result = await loadSupabaseSongs();
@@ -131,8 +144,24 @@ function App() {
     }
   }
 
+  async function refreshSplitLibrary(nextSelectedId = selectedSplitId) {
+    const result = await loadSupabaseSplitSongs();
+    setSplitSongs(result.songs);
+    setSelectedSplitId(
+      result.songs.some((song) => song.id === nextSelectedId)
+        ? nextSelectedId
+        : result.songs[0]?.id ?? "split-empty"
+    );
+    if (result.source === "supabase") {
+      setSplitLibraryStatus(`분할 ${result.songs.length}곡`);
+    } else {
+      setSplitLibraryStatus(result.error ? `분할 목록: ${result.error}` : "분할 목록 없음");
+    }
+  }
+
   useEffect(() => {
     refreshLibrary("");
+    refreshSplitLibrary("");
   }, []);
 
   useEffect(() => {
@@ -149,17 +178,21 @@ function App() {
       audio.playbackRate = rate;
       audio.volume = splitVolumes[instrument.key];
     });
-  }, [rate, splitVolumes, selectedSong]);
+  }, [rate, splitVolumes, selectedSplitSong]);
 
   useEffect(() => {
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
     setAbLoop({ start: null, end: null });
-  }, [selectedId]);
+  }, [selectedId, selectedSplitId]);
 
   function selectSong(song) {
     setSelectedId(song.id);
+  }
+
+  function selectSplitSong(song) {
+    setSelectedSplitId(song.id);
   }
 
   function pauseMainAudio() {
@@ -200,7 +233,7 @@ function App() {
   async function toggleSplitPlay() {
     const activeAudios = instruments
       .map((instrument) => splitRefs.current[instrument.key])
-      .filter(Boolean);
+      .filter((audio) => audio?.currentSrc || audio?.src);
 
     if (!activeAudios.length) return;
 
@@ -250,6 +283,14 @@ function App() {
   }
 
   function moveSong(offset) {
+    if (activeTab === "split") {
+      if (splitSongs.length < 1) return;
+      const currentIndex = splitSongs.findIndex((song) => song.id === selectedSplitSong.id);
+      const nextIndex = (currentIndex + offset + splitSongs.length) % splitSongs.length;
+      setSelectedSplitId(splitSongs[nextIndex].id);
+      return;
+    }
+
     if (shuffle && offset > 0 && appSongs.length > 1) {
       const candidates = appSongs.filter((song) => song.id !== selectedSong.id);
       setSelectedId(candidates[Math.floor(Math.random() * candidates.length)].id);
@@ -354,7 +395,11 @@ function App() {
   }
 
   async function uploadSplitTrack(song, instrumentKey, file) {
-    if (!supabase || !file || !song?.id || song.id === "empty") return;
+    if (!supabase || !file) return;
+    if (!song?.id || song.id === "split-empty") {
+      window.alert("먼저 분할곡을 추가해주세요.");
+      return;
+    }
     const bucket = supabaseConfig.buckets.split;
     const path = `${song.id}/${instrumentKey}/${Date.now()}-${safeFileName(file)}`;
     const { error } = await supabase.storage.from(bucket).upload(path, file, {
@@ -366,7 +411,47 @@ function App() {
       return;
     }
     await setDisplayName(bucket, path, file.name);
-    await refreshLibrary(song.id);
+    const previousPath = song.splitTrackPaths?.[instrumentKey];
+    if (previousPath) {
+      await supabase.storage.from(bucket).remove([previousPath]);
+      await removeDisplayName(bucket, previousPath);
+    }
+    await refreshSplitLibrary(song.id);
+  }
+
+  async function addSplitSong() {
+    if (!supabase) return;
+    const title = window.prompt("분할 곡 이름을 입력해주세요");
+    if (!title?.trim()) return;
+
+    const bucket = supabaseConfig.buckets.split;
+    const folder = newSplitFolderName();
+    const manifest = await loadFileManifest(bucket);
+    manifest.__splitSongs = {
+      ...(manifest.__splitSongs ?? {}),
+      [folder]: { title: title.trim() }
+    };
+    manifest.__splitOrder = [folder, ...(manifest.__splitOrder ?? []).filter((item) => item !== folder)];
+    await saveFileManifest(bucket, manifest);
+    await refreshSplitLibrary(folder);
+  }
+
+  async function deleteSplitTrack(song, instrumentKey) {
+    const path = song?.splitTrackPaths?.[instrumentKey];
+    if (!supabase || !path) return;
+
+    const ok = window.confirm("이 악기 파일을 삭제할까요?");
+    if (!ok) return;
+
+    const bucket = supabaseConfig.buckets.split;
+    const { error } = await supabase.storage.from(bucket).remove([path]);
+    if (error) {
+      window.alert(`삭제 실패: ${error.message}`);
+      return;
+    }
+
+    await removeDisplayName(bucket, path);
+    await refreshSplitLibrary(song.id);
   }
 
   return (
@@ -412,9 +497,10 @@ function App() {
         )}
         {activeTab === "split" && (
           <SplitPanel
-            songs={appSongs}
-            selectedSong={selectedSong}
-            onSelect={selectSong}
+            songs={splitSongs}
+            selectedSong={selectedSplitSong}
+            onSelect={selectSplitSong}
+            libraryStatus={splitLibraryStatus}
             splitRefs={splitRefs}
             splitVolumes={splitVolumes}
             setSplitVolumes={setSplitVolumes}
@@ -422,7 +508,9 @@ function App() {
             setCurrentTime={handleTrackedTime}
             setDuration={setDuration}
             setIsPlaying={setIsPlaying}
+            onAddSplitSong={addSplitSong}
             onUploadSplitTrack={uploadSplitTrack}
+            onDeleteSplitTrack={deleteSplitTrack}
           />
         )}
         {activeTab === "score" && <ScorePanel songs={appSongs} selectedSong={selectedSong} onSelect={selectSong} />}
@@ -432,7 +520,7 @@ function App() {
       </main>
 
       <PlayerBar
-        selectedSong={selectedSong}
+        selectedSong={activeTab === "split" ? selectedSplitSong : selectedSong}
         audioRef={audioRef}
         activeTab={activeTab}
         isPlaying={isPlaying}
@@ -633,6 +721,7 @@ function SplitPanel({
   songs,
   selectedSong,
   onSelect,
+  libraryStatus,
   splitRefs,
   splitVolumes,
   setSplitVolumes,
@@ -640,14 +729,21 @@ function SplitPanel({
   setCurrentTime,
   setDuration,
   setIsPlaying,
-  onUploadSplitTrack
+  onAddSplitSong,
+  onUploadSplitTrack,
+  onDeleteSplitTrack
 }) {
   return (
     <section className="split-layout">
       <div className="panel compact">
         <div className="section-title">
           <h2>분할 재생</h2>
-          <span>{selectedSong.partsReady}/6</span>
+          <div className="section-actions">
+            <span>{libraryStatus}</span>
+            <button className="mini-file-button text-file-button" type="button" onClick={onAddSplitSong}>
+              분할곡 추가
+            </button>
+          </div>
         </div>
         <SongList songs={songs} selectedSong={selectedSong} onSelect={onSelect} mode="split" />
       </div>
@@ -656,6 +752,7 @@ function SplitPanel({
         <div className="detail-head">
           <Music2 size={18} />
           <strong>{selectedSong.title}</strong>
+          <span>{selectedSong.partsReady}/6</span>
         </div>
 
         <div className="mixer">
@@ -687,7 +784,17 @@ function SplitPanel({
                   }}
                 />
               </label>
+              <button
+                className="track-delete-button"
+                type="button"
+                title={`${instrument.label} 파일 삭제`}
+                disabled={!selectedSong.splitTrackPaths?.[instrument.key]}
+                onClick={() => onDeleteSplitTrack?.(selectedSong, instrument.key)}
+              >
+                <Trash2 size={15} />
+              </button>
               <audio
+                key={selectedSong.splitTrackPaths?.[instrument.key] || `${selectedSong.id}-${instrument.key}`}
                 data-instrument={instrument.key}
                 ref={(node) => {
                   if (node) splitRefs.current[instrument.key] = node;
