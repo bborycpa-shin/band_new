@@ -17,9 +17,12 @@ import {
   Trash2,
   ArrowDown,
   ArrowUp,
+  ChevronLeft,
+  ChevronRight,
   UploadCloud,
   Users,
-  Volume2
+  Volume2,
+  X
 } from "lucide-react";
 import { supabase, supabaseConfig } from "./lib/supabase";
 import {
@@ -583,6 +586,47 @@ function App() {
     await refreshAlbumLibrary(album.id);
   }
 
+  async function deleteAlbumPhoto(album, image) {
+    if (!supabase || !image?.path) return;
+    const ok = window.confirm("이 사진을 삭제할까요?");
+    if (!ok) return;
+
+    const bucket = supabaseConfig.buckets.album;
+    const { error } = await supabase.storage.from(bucket).remove([image.path]);
+    if (error) {
+      window.alert(`사진 삭제 실패: ${error.message}`);
+      return;
+    }
+
+    await removeDisplayName(bucket, image.path);
+    await refreshAlbumLibrary(album.id);
+  }
+
+  async function deleteAlbumFolder(album) {
+    if (!supabase || !album?.id || album.id === "album-empty") return;
+    const ok = window.confirm(`${album.title} 폴더와 안의 사진을 삭제할까요?`);
+    if (!ok) return;
+
+    const bucket = supabaseConfig.buckets.album;
+    const paths = album.images.map((image) => image.path).filter(Boolean);
+    if (paths.length) {
+      const { error } = await supabase.storage.from(bucket).remove(paths);
+      if (error) {
+        window.alert(`폴더 삭제 실패: ${error.message}`);
+        return;
+      }
+    }
+
+    const manifest = await loadFileManifest(bucket);
+    delete manifest.__albumFolders?.[album.id];
+    manifest.__albumOrder = (manifest.__albumOrder ?? []).filter((item) => item !== album.id);
+    paths.forEach((path) => {
+      delete manifest[path];
+    });
+    await saveFileManifest(bucket, manifest);
+    await refreshAlbumLibrary("");
+  }
+
   const playerMode = currentPlayerMode();
   const playerSong = playerMode === "split" ? selectedSplitSong : selectedSong;
 
@@ -660,6 +704,8 @@ function App() {
             onSelectAlbum={setSelectedAlbumId}
             onAddAlbumFolder={addAlbumFolder}
             onUploadAlbumPhotos={uploadAlbumPhotos}
+            onDeleteAlbumFolder={deleteAlbumFolder}
+            onDeleteAlbumPhoto={deleteAlbumPhoto}
           />
         )}
         {activeTab === "upload" && <UploadPanel selectedSong={selectedSong} onLibraryRefresh={refreshLibrary} />}
@@ -1020,8 +1066,25 @@ function AlbumPanel({
   albumStatus,
   onSelectAlbum,
   onAddAlbumFolder,
-  onUploadAlbumPhotos
+  onUploadAlbumPhotos,
+  onDeleteAlbumFolder,
+  onDeleteAlbumPhoto
 }) {
+  const [viewerIndex, setViewerIndex] = useState(null);
+  const activeImage = viewerIndex === null ? null : selectedAlbum.images[viewerIndex];
+
+  useEffect(() => {
+    setViewerIndex(null);
+  }, [selectedAlbum.id]);
+
+  function moveViewer(offset) {
+    if (!selectedAlbum.images.length) return;
+    setViewerIndex((current) => {
+      const index = current ?? 0;
+      return (index + offset + selectedAlbum.images.length) % selectedAlbum.images.length;
+    });
+  }
+
   return (
     <section className="split-layout">
       <div className="panel compact">
@@ -1059,32 +1122,80 @@ function AlbumPanel({
       <div className="panel album-panel">
         <div className="section-title">
           <h2>{selectedAlbum.title}</h2>
-          <label className="mini-file-button text-file-button">
-            사진 추가
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(event) => {
-                onUploadAlbumPhotos?.(selectedAlbum, event.target.files);
-                event.target.value = "";
+          <div className="section-actions">
+            <label className="mini-file-button text-file-button">
+              사진 추가
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(event) => {
+                  onUploadAlbumPhotos?.(selectedAlbum, event.target.files);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+            <button
+              className="mini-file-button"
+              type="button"
+              title="폴더 삭제"
+              disabled={selectedAlbum.id === "album-empty"}
+              onClick={() => {
+                setViewerIndex(null);
+                onDeleteAlbumFolder?.(selectedAlbum);
               }}
-            />
-          </label>
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
         </div>
         {selectedAlbum.images.length ? (
           <div className="photo-grid">
-            {selectedAlbum.images.map((image) => (
-              <a className="photo-thumb" href={image.url} target="_blank" rel="noreferrer" key={image.path}>
-                <img src={image.url} alt={image.label} loading="lazy" />
-                <span>{image.label}</span>
-              </a>
+            {selectedAlbum.images.map((image, index) => (
+              <div className="photo-thumb" key={image.path}>
+                <button type="button" onClick={() => setViewerIndex(index)}>
+                  <img src={image.url} alt={image.label} loading="lazy" />
+                </button>
+                <div className="photo-thumb-caption">
+                  <span>{image.label}</span>
+                  <button
+                    type="button"
+                    title="사진 삭제"
+                    onClick={() => {
+                      setViewerIndex(null);
+                      onDeleteAlbumPhoto?.(selectedAlbum, image);
+                    }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         ) : (
           <div className="empty-list">등록된 사진이 없습니다.</div>
         )}
       </div>
+      {activeImage && (
+        <div className="photo-viewer" role="dialog" aria-modal="true">
+          <button className="viewer-close" type="button" title="닫기" onClick={() => setViewerIndex(null)}>
+            <X size={22} />
+          </button>
+          <button className="viewer-nav prev" type="button" title="이전 사진" onClick={() => moveViewer(-1)}>
+            <ChevronLeft size={34} />
+          </button>
+          <img src={activeImage.url} alt={activeImage.label} />
+          <button className="viewer-nav next" type="button" title="다음 사진" onClick={() => moveViewer(1)}>
+            <ChevronRight size={34} />
+          </button>
+          <div className="viewer-caption">
+            <span>{activeImage.label}</span>
+            <strong>
+              {(viewerIndex ?? 0) + 1} / {selectedAlbum.images.length}
+            </strong>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
