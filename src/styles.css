@@ -188,7 +188,7 @@ h1 {
 }
 
 .song-row.editable {
-  grid-template-columns: 26px minmax(0, 1fr) 28px auto;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
 }
 
 .song-row.selected {
@@ -668,6 +668,27 @@ input[type="range"] {
   text-overflow: ellipsis;
 }
 
+.player-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.player-title strong {
+  min-width: 0;
+}
+
+.mode-badge {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #047857;
+  background: #d1fae5;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
 .seek {
   margin: 9px 0 6px;
 }
@@ -780,14 +801,6 @@ input[type="range"] {
 
   .split-layout {
     grid-template-columns: 1fr;
-  }
-
-  .compact .song-list {
-    max-height: 240px;
-  }
-
-  .song-list {
-    max-height: calc(100vh - 294px);
   }
 
   .panel {

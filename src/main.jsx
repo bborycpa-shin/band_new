@@ -762,6 +762,7 @@ function SongList({
   selectedSong,
   onSelect,
   mode,
+  showMeta = mode === "split",
   editable = false,
   onUploadSong,
   onRenameSong,
@@ -810,7 +811,9 @@ function SongList({
                 <span className="song-name">{song.title}</span>
               )}
             </button>
-            <span className="song-meta">{mode === "split" ? `${song.partsReady}/6` : song.scores.length}</span>
+            {showMeta && (
+              <span className="song-meta">{mode === "split" ? `${song.partsReady}/6` : song.scores.length}</span>
+            )}
             {editable && (
               <div className="song-actions" onClick={(event) => event.stopPropagation()}>
                 {isEditing ? (
@@ -1049,7 +1052,6 @@ function AlbumPanel({
               >
                 <span className="song-name">{album.title}</span>
               </button>
-              <span className="song-meta">{album.images.length}</span>
             </div>
           ))}
         </div>
@@ -1482,7 +1484,10 @@ function PlayerBar({
         onEnded={() => setIsPlaying(false)}
       />
       <div className="player-head">
-        <strong>{selectedSong.title}</strong>
+        <div className="player-title">
+          <strong>{selectedSong.title}</strong>
+          {activeTab === "split" && <span className="mode-badge">분할재생중</span>}
+        </div>
         <span>
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
