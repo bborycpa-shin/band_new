@@ -557,15 +557,15 @@ input[type="range"] {
 
 .photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
+  gap: 8px;
   max-height: calc(100vh - 290px);
   overflow: auto;
 }
 
 .photo-thumb {
-  display: grid;
-  gap: 5px;
+  position: relative;
+  display: block;
   color: #33405b;
   font-size: 0.72rem;
   font-weight: 800;
@@ -590,27 +590,25 @@ input[type="range"] {
 }
 
 .photo-thumb-caption {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px;
-  align-items: center;
-  gap: 4px;
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: block;
 }
 
 .photo-thumb-caption span {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  display: none;
 }
 
 .photo-thumb-caption button {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: 0;
   border-radius: 6px;
   color: #33405b;
-  background: #edf2fa;
+  background: rgba(237, 242, 250, 0.92);
 }
 
 .photo-viewer {
@@ -906,6 +904,16 @@ input[type="range"] {
 
   .photo-viewer {
     padding: 54px 14px 76px;
+  }
+
+  .photo-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    max-height: calc(100vh - 255px);
+  }
+
+  .photo-thumb img {
+    border-radius: 6px;
   }
 
   .photo-viewer img {
