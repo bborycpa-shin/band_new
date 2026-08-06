@@ -46,7 +46,6 @@ const tabs = [
   { key: "split", label: "분할", icon: SlidersHorizontal },
   { key: "score", label: "악보", icon: Download },
   { key: "album", label: "앨범", icon: Image },
-  { key: "upload", label: "업로드", icon: UploadCloud },
   { key: "member", label: "멤버", icon: Users }
 ];
 
@@ -581,6 +580,22 @@ function App() {
     await refreshSheetLibrary();
   }
 
+  async function deleteSheetFile(sheet) {
+    if (!supabase || !sheet?.path) return;
+    const ok = window.confirm("이 악보 파일을 삭제할까요?");
+    if (!ok) return;
+
+    const bucket = supabaseConfig.buckets.score;
+    const { error } = await supabase.storage.from(bucket).remove([sheet.path]);
+    if (error) {
+      window.alert(`악보 삭제 실패: ${error.message}`);
+      return;
+    }
+
+    await removeDisplayName(bucket, sheet.path);
+    await refreshSheetLibrary();
+  }
+
   async function addAlbumFolder() {
     if (!supabase) return;
     const title = window.prompt("사진 폴더 이름을 입력해주세요");
@@ -750,6 +765,7 @@ function App() {
             sheets={sheetFiles}
             sheetStatus={sheetStatus}
             onUploadSheet={uploadSheetFile}
+            onDeleteSheet={deleteSheetFile}
           />
         )}
         {activeTab === "album" && (
@@ -764,7 +780,6 @@ function App() {
             onDeleteAlbumPhoto={deleteAlbumPhoto}
           />
         )}
-        {activeTab === "upload" && <UploadPanel selectedSong={selectedSong} onLibraryRefresh={refreshLibrary} />}
         {activeTab === "member" && <MemberPanel />}
       </main>
 
@@ -1079,7 +1094,7 @@ function SplitPanel({
   );
 }
 
-function ScorePanel({ sheets, sheetStatus, onUploadSheet }) {
+function ScorePanel({ sheets, sheetStatus, onUploadSheet, onDeleteSheet }) {
   return (
     <section className="panel">
       <div className="section-title">
@@ -1103,10 +1118,15 @@ function ScorePanel({ sheets, sheetStatus, onUploadSheet }) {
       <div className="score-list standalone-score-list">
         {sheets.length ? (
           sheets.map((score) => (
-            <a className="score-row" href={score.url} download key={score.path}>
-              <span>{score.label}</span>
-              <Download size={16} />
-            </a>
+            <div className="score-row" key={score.path}>
+              <a href={score.url} download>
+                <span>{score.label}</span>
+                <Download size={16} />
+              </a>
+              <button type="button" title="악보 삭제" onClick={() => onDeleteSheet?.(score)}>
+                <Trash2 size={15} />
+              </button>
+            </div>
           ))
         ) : (
           <div className="empty-list">등록된 악보가 없습니다.</div>
@@ -1252,357 +1272,6 @@ function AlbumPanel({
           </div>
         </div>
       )}
-    </section>
-  );
-}
-
-function UploadPanel({ selectedSong, onLibraryRefresh }) {
-  const [category, setCategory] = useState("audio");
-  const [instrument, setInstrument] = useState("vocal");
-  const [songSlug, setSongSlug] = useState(selectedSong.id);
-  const [queue, setQueue] = useState([]);
-  const [files, setFiles] = useState([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-  const [message, setMessage] = useState("");
-  const [editingPath, setEditingPath] = useState("");
-  const [editingName, setEditingName] = useState("");
-  const [savingPath, setSavingPath] = useState("");
-
-  useEffect(() => {
-    setSongSlug(selectedSong.id);
-  }, [selectedSong.id]);
-
-  const bucket = supabaseConfig.buckets[category];
-  const canUpload = Boolean(supabase && bucket);
-
-  useEffect(() => {
-    refreshFiles();
-  }, [category]);
-
-  function addFiles(fileList) {
-    const files = Array.from(fileList ?? []);
-    if (!files.length) return;
-    setQueue((current) => [
-      ...current,
-      ...files.map((file) => ({
-        file,
-        status: "대기",
-        path: buildPath(file),
-        publicUrl: ""
-      }))
-    ]);
-  }
-
-  function buildPath(file) {
-    const cleanSong = safeName(songSlug || selectedSong.id || "song");
-    const cleanFile = safeFileName(file);
-    if (category === "split") return `${cleanSong}/${instrument}/${Date.now()}-${cleanFile}`;
-    if (category === "score") return `${cleanSong}/${Date.now()}-${cleanFile}`;
-    if (category === "album") return `${cleanSong}/${Date.now()}-${cleanFile}`;
-    return `${cleanSong}/full/${Date.now()}-${cleanFile}`;
-  }
-
-  async function listStorageFiles(prefix = "", loadedManifest = null) {
-    const manifest = loadedManifest ?? (await loadFileManifest(bucket));
-    const { data, error } = await supabase.storage.from(bucket).list(prefix, {
-      limit: 1000,
-      sortBy: { column: "name", order: "asc" }
-    });
-
-    if (error) throw error;
-
-    const nextFiles = [];
-    for (const entry of data ?? []) {
-      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (!prefix && entry.name === manifestFolder) continue;
-      if (entry.id === null) {
-        nextFiles.push(...(await listStorageFiles(path, manifest)));
-      } else if (path !== manifestPath) {
-        nextFiles.push({
-          name: entry.name,
-          displayName: manifest[path]?.displayName || entry.name,
-          path,
-          size: entry.metadata?.size ?? 0,
-          updatedAt: entry.updated_at ?? entry.created_at ?? ""
-        });
-      }
-    }
-    return nextFiles;
-  }
-
-  async function refreshFiles() {
-    if (!canUpload) {
-      setFiles([]);
-      return;
-    }
-
-    setIsLoadingFiles(true);
-    try {
-      setFiles(await listStorageFiles());
-    } catch (error) {
-      setMessage(`파일 목록 조회 실패: ${error.message}`);
-    } finally {
-      setIsLoadingFiles(false);
-    }
-  }
-
-  async function uploadAll() {
-    if (!canUpload) {
-      setMessage(".env.local에 Supabase 설정을 먼저 넣어주세요.");
-      return;
-    }
-
-    setMessage("업로드 중입니다...");
-    const nextQueue = [];
-
-    for (const item of queue) {
-      const path = item.path || buildPath(item.file);
-      const { error } = await supabase.storage.from(bucket).upload(path, item.file, {
-        cacheControl: "3600",
-        upsert: true
-      });
-
-      if (error) {
-        nextQueue.push({ ...item, path, status: `실패: ${error.message}` });
-        continue;
-      }
-
-      await setDisplayName(bucket, path, item.file.name);
-      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-      nextQueue.push({ ...item, path, status: "완료", publicUrl: data.publicUrl });
-    }
-
-    setQueue(nextQueue);
-    setMessage("업로드 처리가 끝났습니다.");
-    await refreshFiles();
-    if (category === "audio") {
-      await onLibraryRefresh(nextQueue.find((item) => item.publicUrl)?.path?.split("/")[0]);
-    }
-  }
-
-  async function deleteFile(path) {
-    if (!canUpload) return;
-    const ok = window.confirm(`${path} 파일을 삭제할까요?`);
-    if (!ok) return;
-
-    const { error } = await supabase.storage.from(bucket).remove([path]);
-    if (error) {
-      setMessage(`삭제 실패: ${error.message}`);
-      return;
-    }
-
-    await removeDisplayName(bucket, path);
-    setMessage("파일을 삭제했습니다.");
-    await refreshFiles();
-    if (category === "audio") await onLibraryRefresh();
-  }
-
-  async function renameFile(path) {
-    if (!canUpload || !editingName.trim()) return;
-    setSavingPath(path);
-    setMessage("파일명을 변경하는 중입니다...");
-
-    const parts = path.split("/");
-    const currentName = parts[parts.length - 1];
-    const currentExtension = currentName.includes(".") ? `.${currentName.split(".").pop()}` : "";
-    const nextName = safeName(editingName);
-    parts[parts.length - 1] = nextName.includes(".") || !currentExtension ? nextName : `${nextName}${currentExtension}`;
-    const nextPath = parts.join("/");
-
-    if (nextPath === path) {
-      setEditingPath("");
-      setEditingName("");
-      setSavingPath("");
-      return;
-    }
-
-    const { error: moveError } = await supabase.storage.from(bucket).move(path, nextPath);
-    if (moveError) {
-      const oldUrl = supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
-      const fileResponse = await fetch(oldUrl);
-      if (!fileResponse.ok) {
-        setMessage(`이름 변경 실패: ${moveError.message}`);
-        setSavingPath("");
-        return;
-      }
-
-      const blob = await fileResponse.blob();
-      const { error: uploadError } = await supabase.storage.from(bucket).upload(nextPath, blob, {
-        cacheControl: "3600",
-        upsert: true,
-        contentType: blob.type || "application/octet-stream"
-      });
-
-      if (uploadError) {
-        setMessage(`이름 변경 실패: ${uploadError.message}`);
-        setSavingPath("");
-        return;
-      }
-
-      await supabase.storage.from(bucket).remove([path]);
-    }
-
-    await moveDisplayName(bucket, path, nextPath, editingName.trim());
-    setMessage("파일명을 변경했습니다.");
-    setEditingPath("");
-    setEditingName("");
-    setSavingPath("");
-    await refreshFiles();
-    if (category === "audio") await onLibraryRefresh();
-  }
-
-  return (
-    <section className="panel upload-panel">
-      <div className="section-title">
-        <h2>파일 업로드</h2>
-        <span>{bucket || "설정 필요"}</span>
-      </div>
-
-      {!canUpload && (
-        <div className="notice">
-          Supabase 연결 정보가 아직 없습니다. `.env.local`에 URL, anon key, 버킷명을 넣으면 실제 업로드가
-          됩니다.
-        </div>
-      )}
-
-      <div className="upload-controls">
-        <label>
-          종류
-          <select value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="audio">전체 음원</option>
-            <option value="split">분할 음원</option>
-            <option value="score">악보</option>
-            <option value="album">앨범 사진</option>
-          </select>
-        </label>
-
-        {category === "split" && (
-          <label>
-            악기
-            <select value={instrument} onChange={(event) => setInstrument(event.target.value)}>
-              {instruments.map((item) => (
-                <option key={item.key} value={item.key}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <label>
-          곡 폴더
-          <input value={songSlug} onChange={(event) => setSongSlug(event.target.value)} />
-        </label>
-      </div>
-
-      <label
-        className={isDragging ? "drop-zone dragging" : "drop-zone"}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setIsDragging(false);
-          addFiles(event.dataTransfer.files);
-        }}
-      >
-        <UploadCloud size={30} />
-        <strong>파일을 여기에 드래그하거나 눌러서 선택</strong>
-        <span>PC의 mp3, wav, pdf, jpg, png 파일을 여러 개 올릴 수 있습니다.</span>
-        <input type="file" multiple onChange={(event) => addFiles(event.target.files)} />
-      </label>
-
-      <div className="upload-actions">
-        <button onClick={uploadAll} disabled={!queue.length}>
-          업로드 시작
-        </button>
-        <button onClick={() => setQueue([])} disabled={!queue.length}>
-          목록 비우기
-        </button>
-        <button onClick={refreshFiles} disabled={!canUpload || isLoadingFiles}>
-          파일 새로고침
-        </button>
-      </div>
-
-      {message && <p className="upload-message">{message}</p>}
-
-      <div className="upload-list">
-        {queue.map((item, index) => (
-          <div className="upload-row" key={`${item.file.name}-${index}`}>
-            <div>
-              <strong>{item.file.name}</strong>
-              <span>{item.path}</span>
-              {item.publicUrl && <a href={item.publicUrl}>{item.publicUrl}</a>}
-            </div>
-            <em>{item.status}</em>
-          </div>
-        ))}
-      </div>
-
-      <div className="section-title file-manager-title">
-        <h2>버킷 파일 관리</h2>
-        <span>{isLoadingFiles ? "불러오는 중" : `${files.length}개`}</span>
-      </div>
-
-      <div className="upload-list">
-        {files.map((file) => (
-          <div className="upload-row file-row" key={file.path}>
-            <div>
-              {editingPath === file.path ? (
-                <input
-                  className="rename-input"
-                  value={editingName}
-                  onChange={(event) => setEditingName(event.target.value)}
-                />
-              ) : (
-                <strong>{file.displayName}</strong>
-              )}
-              <span>{file.path}</span>
-            </div>
-            <div className="file-actions">
-              {editingPath === file.path ? (
-                <>
-                  <button
-                    type="button"
-                    disabled={savingPath === file.path}
-                    onClick={() => renameFile(file.path)}
-                  >
-                    {savingPath === file.path ? "저장중" : "저장"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingPath("");
-                      setEditingName("");
-                    }}
-                  >
-                    취소
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    title="파일명 변경"
-                    onClick={() => {
-                      setEditingPath(file.path);
-                      setEditingName(file.displayName);
-                    }}
-                  >
-                    <Pencil size={15} />
-                  </button>
-                  <button type="button" title="삭제" onClick={() => deleteFile(file.path)}>
-                    <Trash2 size={15} />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
     </section>
   );
 }
