@@ -34,6 +34,7 @@ import {
 import { loadSupabaseSongs } from "./lib/loadSupabaseSongs";
 import { createEmptySplitSong, loadSupabaseSplitSongs } from "./lib/loadSupabaseSplitSongs";
 import { loadSupabaseSheets } from "./lib/loadSupabaseSheets";
+import { createEmptyAlbum, loadSupabaseAlbums } from "./lib/loadSupabaseAlbums";
 import { instruments, sampleSongs } from "./data/songs";
 import "./styles.css";
 
@@ -92,12 +93,20 @@ function safeFileName(file) {
   return cleanBase === "file" ? `upload${extension}` : `${cleanBase}${extension}`;
 }
 
+function uniqueFileName(file) {
+  return `${Date.now()}-${crypto.randomUUID()}-${safeFileName(file)}`;
+}
+
 function newSongFolderName() {
   return `song-${Date.now()}`;
 }
 
 function newSplitFolderName() {
   return `split-${Date.now()}`;
+}
+
+function newAlbumFolderName() {
+  return `album-${Date.now()}`;
 }
 
 function App() {
@@ -110,6 +119,9 @@ function App() {
   const [selectedSplitId, setSelectedSplitId] = useState("");
   const [sheetFiles, setSheetFiles] = useState([]);
   const [sheetStatus, setSheetStatus] = useState("불러오는 중");
+  const [albumFolders, setAlbumFolders] = useState([]);
+  const [albumStatus, setAlbumStatus] = useState("불러오는 중");
+  const [selectedAlbumId, setSelectedAlbumId] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackMode, setPlaybackMode] = useState("play");
   const [duration, setDuration] = useState(0);
@@ -131,6 +143,10 @@ function App() {
   const selectedSplitSong = useMemo(
     () => splitSongs.find((song) => song.id === selectedSplitId) ?? splitSongs[0] ?? createEmptySplitSong(),
     [splitSongs, selectedSplitId]
+  );
+  const selectedAlbum = useMemo(
+    () => albumFolders.find((album) => album.id === selectedAlbumId) ?? albumFolders[0] ?? createEmptyAlbum(),
+    [albumFolders, selectedAlbumId]
   );
 
   async function refreshLibrary(nextSelectedId = selectedId) {
@@ -173,10 +189,26 @@ function App() {
     }
   }
 
+  async function refreshAlbumLibrary(nextSelectedId = selectedAlbumId) {
+    const result = await loadSupabaseAlbums();
+    setAlbumFolders(result.albums);
+    setSelectedAlbumId(
+      result.albums.some((album) => album.id === nextSelectedId)
+        ? nextSelectedId
+        : result.albums[0]?.id ?? "album-empty"
+    );
+    if (result.source === "supabase") {
+      setAlbumStatus(`사진 폴더 ${result.albums.length}개`);
+    } else {
+      setAlbumStatus(result.error ? `사진 목록: ${result.error}` : "사진 폴더 없음");
+    }
+  }
+
   useEffect(() => {
     refreshLibrary("");
     refreshSplitLibrary("");
     refreshSheetLibrary();
+    refreshAlbumLibrary("");
   }, []);
 
   useEffect(() => {
@@ -346,27 +378,36 @@ function App() {
   }
 
   async function uploadSongFile(song, file) {
-    if (!supabase || !file) return;
+    const files = Array.from(file instanceof FileList ? file : file ? [file] : []);
+    if (!supabase || !files.length) return;
     const bucket = supabaseConfig.buckets.audio;
     const isNewSong = !song || song.id === "empty";
-    const folder = isNewSong ? newSongFolderName() : song.id;
-    const path = `${folder}/full/${Date.now()}-${safeFileName(file)}`;
-    const { error } = await supabase.storage.from(bucket).upload(path, file, {
-      cacheControl: "3600",
-      upsert: true
-    });
-    if (error) {
-      window.alert(`업로드 실패: ${error.message}`);
-      return;
+    const uploaded = [];
+
+    for (const item of files) {
+      const folder = isNewSong ? newSongFolderName() : song.id;
+      const path = `${folder}/full/${uniqueFileName(item)}`;
+      const { error } = await supabase.storage.from(bucket).upload(path, item, {
+        cacheControl: "3600",
+        upsert: true
+      });
+      if (error) {
+        window.alert(`업로드 실패: ${error.message}`);
+        continue;
+      }
+      await setDisplayName(bucket, path, item.name);
+      uploaded.push({ folder, path });
     }
-    await setDisplayName(bucket, path, file.name);
+
+    if (!uploaded.length) return;
+
     if (isNewSong) {
       await setManifestOrder(bucket, [
-        path,
+        ...uploaded.map((item) => item.path),
         ...appSongs.map((item) => item.audioPath).filter(Boolean)
       ]);
     }
-    await refreshLibrary(folder);
+    await refreshLibrary(uploaded[0].folder);
   }
 
   async function renameSong(song, nextName) {
@@ -422,7 +463,7 @@ function App() {
       return;
     }
     const bucket = supabaseConfig.buckets.split;
-    const path = `${song.id}/${instrumentKey}/${Date.now()}-${safeFileName(file)}`;
+    const path = `${song.id}/${instrumentKey}/${uniqueFileName(file)}`;
     const { error } = await supabase.storage.from(bucket).upload(path, file, {
       cacheControl: "3600",
       upsert: true
@@ -476,22 +517,70 @@ function App() {
   }
 
   async function uploadSheetFile(file) {
-    if (!supabase || !file) return;
+    const files = Array.from(file instanceof FileList ? file : file ? [file] : []);
+    if (!supabase || !files.length) return;
 
     const bucket = supabaseConfig.buckets.score;
-    const path = `${Date.now()}-${safeFileName(file)}`;
-    const { error } = await supabase.storage.from(bucket).upload(path, file, {
-      cacheControl: "3600",
-      upsert: true
-    });
+    for (const item of files) {
+      const path = uniqueFileName(item);
+      const { error } = await supabase.storage.from(bucket).upload(path, item, {
+        cacheControl: "3600",
+        upsert: true
+      });
 
-    if (error) {
-      window.alert(`악보 업로드 실패: ${error.message}`);
+      if (error) {
+        window.alert(`악보 업로드 실패: ${error.message}`);
+        continue;
+      }
+
+      await setDisplayName(bucket, path, item.name);
+    }
+
+    await refreshSheetLibrary();
+  }
+
+  async function addAlbumFolder() {
+    if (!supabase) return;
+    const title = window.prompt("사진 폴더 이름을 입력해주세요");
+    if (!title?.trim()) return;
+
+    const bucket = supabaseConfig.buckets.album;
+    const folder = newAlbumFolderName();
+    const manifest = await loadFileManifest(bucket);
+    manifest.__albumFolders = {
+      ...(manifest.__albumFolders ?? {}),
+      [folder]: { title: title.trim() }
+    };
+    manifest.__albumOrder = [folder, ...(manifest.__albumOrder ?? []).filter((item) => item !== folder)];
+    await saveFileManifest(bucket, manifest);
+    await refreshAlbumLibrary(folder);
+  }
+
+  async function uploadAlbumPhotos(album, fileList) {
+    const files = Array.from(fileList ?? []);
+    if (!supabase || !files.length) return;
+    if (!album?.id || album.id === "album-empty") {
+      window.alert("먼저 사진 폴더를 추가해주세요.");
       return;
     }
 
-    await setDisplayName(bucket, path, file.name);
-    await refreshSheetLibrary();
+    const bucket = supabaseConfig.buckets.album;
+    for (const file of files) {
+      const path = `${album.id}/${uniqueFileName(file)}`;
+      const { error } = await supabase.storage.from(bucket).upload(path, file, {
+        cacheControl: "3600",
+        upsert: true
+      });
+
+      if (error) {
+        window.alert(`사진 업로드 실패: ${error.message}`);
+        continue;
+      }
+
+      await setDisplayName(bucket, path, file.name);
+    }
+
+    await refreshAlbumLibrary(album.id);
   }
 
   const playerMode = currentPlayerMode();
@@ -563,7 +652,16 @@ function App() {
             onUploadSheet={uploadSheetFile}
           />
         )}
-        {activeTab === "album" && <AlbumPanel songs={appSongs} selectedSong={selectedSong} onSelect={selectSong} />}
+        {activeTab === "album" && (
+          <AlbumPanel
+            albums={albumFolders}
+            selectedAlbum={selectedAlbum}
+            albumStatus={albumStatus}
+            onSelectAlbum={setSelectedAlbumId}
+            onAddAlbumFolder={addAlbumFolder}
+            onUploadAlbumPhotos={uploadAlbumPhotos}
+          />
+        )}
         {activeTab === "upload" && <UploadPanel selectedSong={selectedSong} onLibraryRefresh={refreshLibrary} />}
         {activeTab === "member" && <MemberPanel />}
       </main>
@@ -636,8 +734,9 @@ function PlayList({
             <input
               type="file"
               accept="audio/*"
+              multiple
               onChange={(event) => {
-                onUploadSong?.(null, event.target.files?.[0]);
+                onUploadSong?.(null, event.target.files);
                 event.target.value = "";
               }}
             />
@@ -887,8 +986,9 @@ function ScorePanel({ sheets, sheetStatus, onUploadSheet }) {
             <input
               type="file"
               accept=".pdf,image/*"
+              multiple
               onChange={(event) => {
-                onUploadSheet?.(event.target.files?.[0]);
+                onUploadSheet?.(event.target.files);
                 event.target.value = "";
               }}
             />
@@ -911,29 +1011,76 @@ function ScorePanel({ sheets, sheetStatus, onUploadSheet }) {
   );
 }
 
-function AlbumPanel({ songs, selectedSong, onSelect }) {
+function AlbumPanel({
+  albums,
+  selectedAlbum,
+  albumStatus,
+  onSelectAlbum,
+  onAddAlbumFolder,
+  onUploadAlbumPhotos
+}) {
   return (
     <section className="split-layout">
       <div className="panel compact">
         <div className="section-title">
           <h2>앨범</h2>
-          <span>사진/영상</span>
+          <div className="section-actions">
+            <span>{albumStatus}</span>
+            <button className="mini-file-button text-file-button" type="button" onClick={onAddAlbumFolder}>
+              폴더 추가
+            </button>
+          </div>
         </div>
-        <SongList songs={songs} selectedSong={selectedSong} onSelect={onSelect} />
+        <div className="song-list">
+          {albums.map((album, index) => (
+            <div
+              key={album.id}
+              className={selectedAlbum.id === album.id ? "song-row selected" : "song-row"}
+              onClick={() => onSelectAlbum(album.id)}
+            >
+              <span className="song-number">{index + 1}</span>
+              <button
+                className="song-main"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelectAlbum(album.id);
+                }}
+              >
+                <span className="song-name">{album.title}</span>
+              </button>
+              <span className="song-meta">{album.images.length}</span>
+            </div>
+          ))}
+        </div>
       </div>
       <div className="panel album-panel">
-        {selectedSong.album.images[0] && (
-          <img src={selectedSong.album.images[0]} alt={`${selectedSong.title} 앨범 사진`} />
-        )}
-        {selectedSong.album.youtubeId ? (
-          <iframe
-            title={`${selectedSong.title} 영상`}
-            src={`https://www.youtube.com/embed/${selectedSong.album.youtubeId}`}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          />
+        <div className="section-title">
+          <h2>{selectedAlbum.title}</h2>
+          <label className="mini-file-button text-file-button">
+            사진 추가
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(event) => {
+                onUploadAlbumPhotos?.(selectedAlbum, event.target.files);
+                event.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+        {selectedAlbum.images.length ? (
+          <div className="photo-grid">
+            {selectedAlbum.images.map((image) => (
+              <a className="photo-thumb" href={image.url} target="_blank" rel="noreferrer" key={image.path}>
+                <img src={image.url} alt={image.label} loading="lazy" />
+                <span>{image.label}</span>
+              </a>
+            ))}
+          </div>
         ) : (
-          <div className="notice">등록된 유튜브 영상이 없습니다.</div>
+          <div className="empty-list">등록된 사진이 없습니다.</div>
         )}
       </div>
     </section>
