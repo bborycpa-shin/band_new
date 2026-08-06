@@ -99,6 +99,26 @@ function uniqueFileName(file) {
   return `${Date.now()}-${crypto.randomUUID()}-${safeFileName(file)}`;
 }
 
+const splitFileNameInstrumentMap = [
+  { key: "vocal", terms: ["vocal", "vocals", "voice", "보컬"] },
+  { key: "guitar", terms: ["guitar", "gt", "기타"] },
+  { key: "bass", terms: ["bass", "베이스"] },
+  { key: "drums", terms: ["drums", "drum", "드럼"] },
+  { key: "keys", terms: ["piano", "keyboard", "keys", "key", "건반", "피아노"] },
+  { key: "other", terms: ["other", "others", "etc"] }
+];
+
+function detectSplitInstrument(fileName) {
+  const baseName = fileName.replace(/\.[^.]+$/, "").toLowerCase();
+  const tokens = baseName.split(/[\s._\-()[\]{}]+/).filter(Boolean);
+
+  for (const item of splitFileNameInstrumentMap) {
+    if (item.terms.some((term) => tokens.includes(term))) return item.key;
+  }
+
+  return "";
+}
+
 function uniqueJpegFileName(file) {
   const baseName = safeName(file.name.replace(/\.[^.]+$/, ""));
   return `${Date.now()}-${crypto.randomUUID()}-${baseName === "file" ? "photo" : baseName}.jpg`;
@@ -522,6 +542,80 @@ function App() {
     await refreshSplitLibrary(song.id);
   }
 
+  async function uploadSplitTracks(song, fileList) {
+    const files = Array.from(fileList ?? []);
+    if (!supabase || !files.length) return;
+    if (!song?.id || song.id === "split-empty") {
+      window.alert("먼저 분할곡을 추가해주세요.");
+      return;
+    }
+
+    const matchedFiles = files.map((file) => ({
+      file,
+      instrumentKey: detectSplitInstrument(file.name)
+    }));
+    const unmatchedFiles = matchedFiles.filter((item) => !item.instrumentKey);
+    const duplicateKeys = matchedFiles
+      .map((item) => item.instrumentKey)
+      .filter((key, index, keys) => key && keys.indexOf(key) !== index);
+
+    if (unmatchedFiles.length) {
+      window.alert(
+        `악기 구분을 못 한 파일이 있습니다:\n${unmatchedFiles.map((item) => item.file.name).join("\n")}`
+      );
+      return;
+    }
+
+    if (duplicateKeys.length) {
+      const names = [...new Set(duplicateKeys)]
+        .map((key) => instruments.find((instrument) => instrument.key === key)?.label ?? key)
+        .join(", ");
+      window.alert(`같은 악기 파일이 중복 선택됐습니다: ${names}`);
+      return;
+    }
+
+    const missingInstruments = instruments.filter(
+      (instrument) => !matchedFiles.some((item) => item.instrumentKey === instrument.key)
+    );
+    if (missingInstruments.length) {
+      window.alert(`빠진 악기 파일이 있습니다: ${missingInstruments.map((item) => item.label).join(", ")}`);
+      return;
+    }
+
+    const bucket = supabaseConfig.buckets.split;
+    const uploaded = [];
+
+    for (const item of matchedFiles) {
+      const path = `${song.id}/${item.instrumentKey}/${uniqueFileName(item.file)}`;
+      const { error } = await supabase.storage.from(bucket).upload(path, item.file, {
+        cacheControl: "3600",
+        upsert: true
+      });
+
+      if (error) {
+        window.alert(`분할 음원 업로드 실패: ${item.file.name}\n${error.message}`);
+        continue;
+      }
+
+      await setDisplayName(bucket, path, item.file.name);
+      uploaded.push({ ...item, path });
+    }
+
+    for (const item of uploaded) {
+      const previousPath = song.splitTrackPaths?.[item.instrumentKey];
+      if (previousPath) {
+        await supabase.storage.from(bucket).remove([previousPath]);
+        await removeDisplayName(bucket, previousPath);
+      }
+    }
+
+    await refreshSplitLibrary(song.id);
+
+    if (uploaded.length) {
+      window.alert(`${uploaded.length}개 분할 파일을 업로드했습니다.`);
+    }
+  }
+
   async function addSplitSong() {
     if (!supabase) return;
     const title = window.prompt("분할 곡 이름을 입력해주세요");
@@ -757,6 +851,7 @@ function App() {
             setIsPlaying={setIsPlaying}
             onAddSplitSong={addSplitSong}
             onUploadSplitTrack={uploadSplitTrack}
+            onUploadSplitTracks={uploadSplitTracks}
             onDeleteSplitTrack={deleteSplitTrack}
           />
         </div>
@@ -999,6 +1094,7 @@ function SplitPanel({
   setIsPlaying,
   onAddSplitSong,
   onUploadSplitTrack,
+  onUploadSplitTracks,
   onDeleteSplitTrack
 }) {
   return (
@@ -1011,6 +1107,18 @@ function SplitPanel({
             <button className="mini-file-button text-file-button" type="button" onClick={onAddSplitSong}>
               분할곡 추가
             </button>
+            <label className="mini-file-button text-file-button split-bulk-button" title="6개 분할 파일 일괄 업로드">
+              6개 업로드
+              <input
+                type="file"
+                accept="audio/*"
+                multiple
+                onChange={(event) => {
+                  onUploadSplitTracks?.(selectedSong, event.target.files);
+                  event.target.value = "";
+                }}
+              />
+            </label>
           </div>
         </div>
         <SongList songs={songs} selectedSong={selectedSong} onSelect={onSelect} mode="split" />
