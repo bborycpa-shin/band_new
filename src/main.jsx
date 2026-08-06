@@ -5,20 +5,24 @@ import {
   Image,
   ListMusic,
   Lock,
+  Mic,
   Music2,
   Pause,
   Pencil,
   Play,
   Repeat,
+  Save,
   Shuffle,
   SkipBack,
   SkipForward,
   SlidersHorizontal,
+  Square,
   Trash2,
   ArrowDown,
   ArrowUp,
   ChevronLeft,
   ChevronRight,
+  FolderOpen,
   UploadCloud,
   Users,
   Unlock,
@@ -942,6 +946,13 @@ function App() {
           <h1>계단밑딴따라</h1>
         </div>
         <div className="topbar-actions">
+          <RecorderPanel
+            isVisible={isAdminMode}
+            audioRef={audioRef}
+            splitRefs={splitRefs}
+            playbackMode={playbackMode}
+            selectedSong={playerSong}
+          />
           <button
             className={isAdminMode ? "lock-button active" : "lock-button"}
             type="button"
@@ -1061,6 +1072,248 @@ function App() {
         seekBy={seekBy}
         seekTo={seekTo}
         moveSong={moveSong}
+      />
+    </div>
+  );
+}
+
+function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedSong }) {
+  const [recordingState, setRecordingState] = useState("idle");
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewName, setPreviewName] = useState("");
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const previewAudioRef = useRef(null);
+  const previewUrlRef = useRef("");
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const audioContextRef = useRef(null);
+  const sourceNodesRef = useRef(new WeakMap());
+  const outputConnectedRef = useRef(new WeakSet());
+  const activeConnectionsRef = useRef([]);
+  const micStreamRef = useRef(null);
+  const micSourceRef = useRef(null);
+
+  useEffect(() => {
+    previewUrlRef.current = previewUrl;
+  }, [previewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      stopMicrophone();
+      activeConnectionsRef.current.forEach(({ source, destination }) => {
+        try {
+          source.disconnect(destination);
+        } catch {
+          // Already disconnected.
+        }
+      });
+      audioContextRef.current?.close?.().catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible && mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+  }, [isVisible]);
+
+  function stopMicrophone() {
+    micStreamRef.current?.getTracks().forEach((track) => track.stop());
+    micStreamRef.current = null;
+    try {
+      micSourceRef.current?.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+    micSourceRef.current = null;
+  }
+
+  function currentAudioElements() {
+    if (playbackMode === "split") {
+      return instruments
+        .map((instrument) => splitRefs.current[instrument.key])
+        .filter((audio) => audio?.src && !audio.paused);
+    }
+
+    const audio = audioRef.current;
+    return audio?.src && !audio.paused ? [audio] : [];
+  }
+
+  async function startRecording() {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      window.alert("이 브라우저에서는 녹음을 사용할 수 없습니다.");
+      return;
+    }
+
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContextClass();
+      }
+      const context = audioContextRef.current;
+      await context.resume();
+
+      const destination = context.createMediaStreamDestination();
+      const activeAudioElements = currentAudioElements();
+      const activeConnections = [];
+
+      activeAudioElements.forEach((element) => {
+        let source = sourceNodesRef.current.get(element);
+        if (!source) {
+          source = context.createMediaElementSource(element);
+          sourceNodesRef.current.set(element, source);
+        }
+        if (!outputConnectedRef.current.has(source)) {
+          source.connect(context.destination);
+          outputConnectedRef.current.add(source);
+        }
+        source.connect(destination);
+        activeConnections.push({ source, destination });
+      });
+
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        }
+      });
+      const micSource = context.createMediaStreamSource(micStream);
+      micSource.connect(destination);
+
+      micStreamRef.current = micStream;
+      micSourceRef.current = micSource;
+      activeConnectionsRef.current = activeConnections;
+      chunksRef.current = [];
+
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const mediaRecorder = new MediaRecorder(destination.stream, { mimeType });
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType || "audio/webm" });
+        const url = URL.createObjectURL(blob);
+        if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        setPreviewUrl(url);
+        setPreviewName(`${selectedSong?.title || "recording"}-${timestamp}.webm`);
+        setRecordingState("idle");
+        stopMicrophone();
+        activeConnectionsRef.current.forEach(({ source, destination: connectedDestination }) => {
+          try {
+            source.disconnect(connectedDestination);
+          } catch {
+            // Already disconnected.
+          }
+        });
+        activeConnectionsRef.current = [];
+      };
+
+      mediaRecorder.start();
+      setRecordingState("recording");
+    } catch (error) {
+      stopMicrophone();
+      activeConnectionsRef.current.forEach(({ source, destination }) => {
+        try {
+          source.disconnect(destination);
+        } catch {
+          // Already disconnected.
+        }
+      });
+      activeConnectionsRef.current = [];
+      setRecordingState("idle");
+      window.alert(`녹음을 시작할 수 없습니다: ${error.message}`);
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+  }
+
+  async function togglePreview() {
+    const audio = previewAudioRef.current;
+    if (!audio || !previewUrl) return;
+    if (audio.paused) {
+      await audio.play();
+      setIsPreviewPlaying(true);
+    } else {
+      audio.pause();
+      setIsPreviewPlaying(false);
+    }
+  }
+
+  function saveRecording() {
+    if (!previewUrl) return;
+    const link = document.createElement("a");
+    link.href = previewUrl;
+    link.download = previewName || "recording.webm";
+    link.click();
+  }
+
+  function loadRecording(file) {
+    if (!file) return;
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    setPreviewUrl(URL.createObjectURL(file));
+    setPreviewName(file.name);
+    setIsPreviewPlaying(false);
+  }
+
+  if (!isVisible) return null;
+
+  return (
+    <div className="recorder-panel" aria-label="녹음기">
+      <button
+        className={recordingState === "recording" ? "recorder-button recording" : "recorder-button"}
+        type="button"
+        onClick={recordingState === "recording" ? stopRecording : startRecording}
+        title={recordingState === "recording" ? "녹음 종료" : "현재 재생음과 마이크 녹음"}
+      >
+        {recordingState === "recording" ? <Square size={15} fill="currentColor" /> : <Mic size={15} />}
+        <span>{recordingState === "recording" ? "정지" : "녹음"}</span>
+      </button>
+      <button
+        className="recorder-icon-button"
+        type="button"
+        onClick={togglePreview}
+        disabled={!previewUrl || recordingState === "recording"}
+        title="녹음 파일 재생/일시정지"
+      >
+        {isPreviewPlaying ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" />}
+      </button>
+      <button
+        className="recorder-icon-button"
+        type="button"
+        onClick={saveRecording}
+        disabled={!previewUrl || recordingState === "recording"}
+        title="녹음 파일 저장"
+      >
+        <Save size={15} />
+      </button>
+      <label className="recorder-icon-button" title="저장한 녹음 파일 불러오기">
+        <FolderOpen size={15} />
+        <input
+          type="file"
+          accept="audio/*"
+          onChange={(event) => {
+            loadRecording(event.target.files?.[0]);
+            event.target.value = "";
+          }}
+        />
+      </label>
+      <audio
+        ref={previewAudioRef}
+        src={previewUrl}
+        onEnded={() => setIsPreviewPlaying(false)}
+        onPause={() => setIsPreviewPlaying(false)}
+        preload="metadata"
       />
     </div>
   );
@@ -1288,6 +1541,7 @@ function SplitPanel({
           if (node) splitRefs.current[instrument.key] = node;
         }}
         src={song.splitTracks[instrument.key]}
+        crossOrigin="anonymous"
         preload="metadata"
         onLoadedMetadata={(event) => {
           if (instrument.key === "vocal") setDuration(event.currentTarget.duration);
@@ -1725,6 +1979,7 @@ function PlayerBar({
       <audio
         ref={audioRef}
         src={selectedSong.audioUrl}
+        crossOrigin="anonymous"
         preload="metadata"
         onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
         onTimeUpdate={(event) => handleTrackedTime(event.currentTarget.currentTime)}

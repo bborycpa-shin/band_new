@@ -90,6 +90,8 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .lock-button {
@@ -119,6 +121,60 @@ h1 {
   background: #2563eb;
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.22);
   font-weight: 900;
+}
+
+.recorder-panel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #e0e8f4;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 8px rgba(24, 32, 51, 0.08);
+}
+
+.recorder-panel audio,
+.recorder-icon-button input {
+  display: none;
+}
+
+.recorder-button,
+.recorder-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 7px;
+  color: #7f1d1d;
+  background: #fee2e2;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.recorder-button {
+  min-width: 72px;
+  padding: 0 9px;
+}
+
+.recorder-button.recording {
+  color: #ffffff;
+  background: #dc2626;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.24);
+}
+
+.recorder-icon-button {
+  width: 30px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.recorder-icon-button:disabled {
+  color: #c7a0a0;
+  background: #fff1f2;
+  cursor: not-allowed;
 }
 
 .tabbar {
@@ -177,14 +233,16 @@ h1 {
 .admin-mode .track-delete-button,
 .admin-mode .split-row-delete-button,
 .admin-mode .score-row button,
-.admin-mode .photo-thumb-caption button {
+.admin-mode .photo-thumb-caption button,
+.admin-mode .recorder-icon-button {
   color: #7f1d1d;
   background: #fee2e2;
 }
 
 .admin-mode .split-bulk-upload-button,
 .admin-mode .split-row-play-button,
-.admin-mode .install-app-button {
+.admin-mode .install-app-button,
+.admin-mode .recorder-button.recording {
   background: #dc2626;
 }
 
@@ -945,6 +1003,30 @@ input[type="range"] {
 
   .topbar {
     padding: 6px 0;
+    align-items: flex-start;
+  }
+
+  .topbar-actions {
+    gap: 6px;
+  }
+
+  .recorder-panel {
+    order: 3;
+    width: 100%;
+    justify-content: flex-end;
+    padding: 3px;
+  }
+
+  .recorder-button {
+    min-width: 62px;
+    min-height: 28px;
+    padding: 0 7px;
+    font-size: 0.68rem;
+  }
+
+  .recorder-icon-button {
+    width: 28px;
+    min-height: 28px;
   }
 
   .tabbar {
