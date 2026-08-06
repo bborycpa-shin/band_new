@@ -333,6 +333,26 @@ h1 {
   color: #17223a;
 }
 
+.split-bulk-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 38px;
+  margin-bottom: 12px;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #059669;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.split-bulk-upload-button input {
+  display: none;
+}
+
 .mixer {
   display: grid;
   gap: 10px;

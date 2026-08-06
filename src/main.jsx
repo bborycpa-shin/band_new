@@ -1107,18 +1107,6 @@ function SplitPanel({
             <button className="mini-file-button text-file-button" type="button" onClick={onAddSplitSong}>
               분할곡 추가
             </button>
-            <label className="mini-file-button text-file-button split-bulk-button" title="6개 분할 파일 일괄 업로드">
-              6개 업로드
-              <input
-                type="file"
-                accept="audio/*"
-                multiple
-                onChange={(event) => {
-                  onUploadSplitTracks?.(selectedSong, event.target.files);
-                  event.target.value = "";
-                }}
-              />
-            </label>
           </div>
         </div>
         <SongList songs={songs} selectedSong={selectedSong} onSelect={onSelect} mode="split" />
@@ -1130,6 +1118,20 @@ function SplitPanel({
           <strong>{selectedSong.title}</strong>
           <span>{selectedSong.partsReady}/6</span>
         </div>
+
+        <label className="split-bulk-upload-button" title="6개 분할 파일 일괄 업로드">
+          <UploadCloud size={16} />
+          <span>6개 파일 일괄 업로드</span>
+          <input
+            type="file"
+            accept="audio/*"
+            multiple
+            onChange={(event) => {
+              onUploadSplitTracks?.(selectedSong, event.target.files);
+              event.target.value = "";
+            }}
+          />
+        </label>
 
         <div className="mixer">
           {instruments.map((instrument) => (
