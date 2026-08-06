@@ -304,6 +304,28 @@ function App() {
     await refreshLibrary(song.id);
   }
 
+  async function deleteSong(song) {
+    if (!supabase || !song.audioPath) return;
+    const ok = window.confirm(`${song.title} 파일을 삭제할까요?`);
+    if (!ok) return;
+
+    const bucket = supabaseConfig.buckets.audio;
+    const { error } = await supabase.storage.from(bucket).remove([song.audioPath]);
+    if (error) {
+      window.alert(`삭제 실패: ${error.message}`);
+      return;
+    }
+
+    await removeDisplayName(bucket, song.audioPath);
+    await setManifestOrder(
+      bucket,
+      appSongs
+        .filter((item) => item.audioPath && item.audioPath !== song.audioPath)
+        .map((item) => item.audioPath)
+    );
+    await refreshLibrary();
+  }
+
   async function reorderSongs(fromIndex, toIndex) {
     if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
     const reordered = [...appSongs];
@@ -369,6 +391,7 @@ function App() {
             libraryStatus={libraryStatus}
             onUploadSong={uploadSongFile}
             onRenameSong={renameSong}
+            onDeleteSong={deleteSong}
             onReorderSongs={reorderSongs}
           />
         )}
@@ -420,7 +443,16 @@ function App() {
   );
 }
 
-function PlayList({ songs, selectedSong, onSelect, libraryStatus, onUploadSong, onRenameSong, onReorderSongs }) {
+function PlayList({
+  songs,
+  selectedSong,
+  onSelect,
+  libraryStatus,
+  onUploadSong,
+  onRenameSong,
+  onDeleteSong,
+  onReorderSongs
+}) {
   return (
     <section className="panel">
       <div className="section-title">
@@ -448,6 +480,7 @@ function PlayList({ songs, selectedSong, onSelect, libraryStatus, onUploadSong, 
         editable
         onUploadSong={onUploadSong}
         onRenameSong={onRenameSong}
+        onDeleteSong={onDeleteSong}
         onReorderSongs={onReorderSongs}
       />
     </section>
@@ -462,6 +495,7 @@ function SongList({
   editable = false,
   onUploadSong,
   onRenameSong,
+  onDeleteSong,
   onReorderSongs
 }) {
   const [editingId, setEditingId] = useState("");
@@ -542,6 +576,9 @@ function SongList({
                       }}
                     >
                       <Pencil size={15} />
+                    </button>
+                    <button type="button" title="삭제" onClick={() => onDeleteSong?.(song)}>
+                      <Trash2 size={15} />
                     </button>
                   </>
                 )}
