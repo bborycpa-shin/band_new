@@ -86,6 +86,10 @@ function safeFileName(file) {
   return cleanBase === "file" ? `upload${extension}` : `${cleanBase}${extension}`;
 }
 
+function newSongFolderName() {
+  return `song-${Date.now()}`;
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState("play");
   const [appSongs, setAppSongs] = useState([]);
@@ -279,7 +283,8 @@ function App() {
   async function uploadSongFile(song, file) {
     if (!supabase || !file) return;
     const bucket = supabaseConfig.buckets.audio;
-    const folder = song?.id && song.id !== "empty" ? song.id : safeName(file.name.replace(/\.[^.]+$/, ""));
+    const isNewSong = !song || song.id === "empty";
+    const folder = isNewSong ? newSongFolderName() : song.id;
     const path = `${folder}/full/${Date.now()}-${safeFileName(file)}`;
     const { error } = await supabase.storage.from(bucket).upload(path, file, {
       cacheControl: "3600",
@@ -290,6 +295,12 @@ function App() {
       return;
     }
     await setDisplayName(bucket, path, file.name);
+    if (isNewSong) {
+      await setManifestOrder(bucket, [
+        path,
+        ...appSongs.map((item) => item.audioPath).filter(Boolean)
+      ]);
+    }
     await refreshLibrary(folder);
   }
 
