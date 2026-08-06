@@ -475,6 +475,11 @@ input[type="range"] {
   font-weight: 900;
 }
 
+.file-actions button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .rename-input {
   width: 100%;
   min-height: 34px;

@@ -499,6 +499,7 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
   const [message, setMessage] = useState("");
   const [editingPath, setEditingPath] = useState("");
   const [editingName, setEditingName] = useState("");
+  const [savingPath, setSavingPath] = useState("");
 
   useEffect(() => {
     setSongSlug(selectedSong.id);
@@ -626,6 +627,8 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
 
   async function renameFile(path) {
     if (!canUpload || !editingName.trim()) return;
+    setSavingPath(path);
+    setMessage("파일명을 변경하는 중입니다...");
 
     const parts = path.split("/");
     const currentName = parts[parts.length - 1];
@@ -637,18 +640,40 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
     if (nextPath === path) {
       setEditingPath("");
       setEditingName("");
+      setSavingPath("");
       return;
     }
 
-    const { error } = await supabase.storage.from(bucket).move(path, nextPath);
-    if (error) {
-      setMessage(`이름 변경 실패: ${error.message}`);
-      return;
+    const { error: moveError } = await supabase.storage.from(bucket).move(path, nextPath);
+    if (moveError) {
+      const oldUrl = supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+      const fileResponse = await fetch(oldUrl);
+      if (!fileResponse.ok) {
+        setMessage(`이름 변경 실패: ${moveError.message}`);
+        setSavingPath("");
+        return;
+      }
+
+      const blob = await fileResponse.blob();
+      const { error: uploadError } = await supabase.storage.from(bucket).upload(nextPath, blob, {
+        cacheControl: "3600",
+        upsert: true,
+        contentType: blob.type || "application/octet-stream"
+      });
+
+      if (uploadError) {
+        setMessage(`이름 변경 실패: ${uploadError.message}`);
+        setSavingPath("");
+        return;
+      }
+
+      await supabase.storage.from(bucket).remove([path]);
     }
 
     setMessage("파일명을 변경했습니다.");
     setEditingPath("");
     setEditingName("");
+    setSavingPath("");
     await refreshFiles();
     if (category === "audio") await onLibraryRefresh();
   }
@@ -766,8 +791,15 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
             <div className="file-actions">
               {editingPath === file.path ? (
                 <>
-                  <button onClick={() => renameFile(file.path)}>저장</button>
                   <button
+                    type="button"
+                    disabled={savingPath === file.path}
+                    onClick={() => renameFile(file.path)}
+                  >
+                    {savingPath === file.path ? "저장중" : "저장"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       setEditingPath("");
                       setEditingName("");
@@ -779,6 +811,7 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
               ) : (
                 <>
                   <button
+                    type="button"
                     title="파일명 변경"
                     onClick={() => {
                       setEditingPath(file.path);
@@ -787,7 +820,7 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
                   >
                     <Pencil size={15} />
                   </button>
-                  <button title="삭제" onClick={() => deleteFile(file.path)}>
+                  <button type="button" title="삭제" onClick={() => deleteFile(file.path)}>
                     <Trash2 size={15} />
                   </button>
                 </>
