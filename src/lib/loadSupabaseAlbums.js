@@ -61,7 +61,7 @@ export async function loadSupabaseAlbums() {
       loadFileManifest(bucket).catch(() => ({}))
     ]);
     const albumMeta = manifest.__albumFolders ?? {};
-    const imageFiles = files.filter(hasImageExtension);
+    const imageFiles = files.filter((path) => path.includes("/") && hasImageExtension(path));
     const folders = [
       ...new Set([
         ...Object.keys(albumMeta),
