@@ -946,13 +946,6 @@ function App() {
           <h1>계단밑딴따라</h1>
         </div>
         <div className="topbar-actions">
-          <RecorderPanel
-            isVisible={isAdminMode}
-            audioRef={audioRef}
-            splitRefs={splitRefs}
-            playbackMode={playbackMode}
-            selectedSong={playerSong}
-          />
           <button
             className={isAdminMode ? "lock-button active" : "lock-button"}
             type="button"
@@ -969,6 +962,15 @@ function App() {
           )}
         </div>
       </header>
+
+      <div className="recorder-strip">
+        <RecorderPanel
+          audioRef={audioRef}
+          splitRefs={splitRefs}
+          playbackMode={playbackMode}
+          selectedSong={playerSong}
+        />
+      </div>
 
       <nav className="tabbar" aria-label="주요 메뉴">
         {tabs.map((tab) => {
@@ -1077,11 +1079,14 @@ function App() {
   );
 }
 
-function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedSong }) {
+function RecorderPanel({ audioRef, splitRefs, playbackMode, selectedSong }) {
   const [recordingState, setRecordingState] = useState("idle");
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewName, setPreviewName] = useState("");
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const [previewTime, setPreviewTime] = useState(0);
+  const [previewDuration, setPreviewDuration] = useState(0);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const previewAudioRef = useRef(null);
   const previewUrlRef = useRef("");
   const mediaRecorderRef = useRef(null);
@@ -1098,6 +1103,18 @@ function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedS
   }, [previewUrl]);
 
   useEffect(() => {
+    if (recordingState !== "recording") return undefined;
+
+    setRecordingSeconds(0);
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setRecordingSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 500);
+
+    return () => window.clearInterval(timer);
+  }, [recordingState]);
+
+  useEffect(() => {
     return () => {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       stopMicrophone();
@@ -1111,12 +1128,6 @@ function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedS
       audioContextRef.current?.close?.().catch(() => {});
     };
   }, []);
-
-  useEffect(() => {
-    if (!isVisible && mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
-    }
-  }, [isVisible]);
 
   function stopMicrophone() {
     micStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -1142,7 +1153,7 @@ function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedS
 
   async function startRecording() {
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      window.alert("이 브라우저에서는 녹음을 사용할 수 없습니다.");
+      window.alert("\uc774 \ube0c\ub77c\uc6b0\uc800\uc5d0\uc11c\ub294 \ub179\uc74c\uc744 \uc0ac\uc6a9\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.");
       return;
     }
 
@@ -1203,6 +1214,8 @@ function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedS
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
         setPreviewUrl(url);
         setPreviewName(`${selectedSong?.title || "recording"}-${timestamp}.webm`);
+        setPreviewTime(0);
+        setPreviewDuration(0);
         setRecordingState("idle");
         stopMicrophone();
         activeConnectionsRef.current.forEach(({ source, destination: connectedDestination }) => {
@@ -1216,6 +1229,7 @@ function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedS
       };
 
       mediaRecorder.start();
+      setIsPreviewPlaying(false);
       setRecordingState("recording");
     } catch (error) {
       stopMicrophone();
@@ -1228,7 +1242,7 @@ function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedS
       });
       activeConnectionsRef.current = [];
       setRecordingState("idle");
-      window.alert(`녹음을 시작할 수 없습니다: ${error.message}`);
+      window.alert(`\ub179\uc74c\uc744 \uc2dc\uc791\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4: ${error.message}`);
     }
   }
 
@@ -1264,40 +1278,61 @@ function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedS
     setPreviewUrl(URL.createObjectURL(file));
     setPreviewName(file.name);
     setIsPreviewPlaying(false);
+    setPreviewTime(0);
+    setPreviewDuration(0);
   }
 
-  if (!isVisible) return null;
-
   return (
-    <div className="recorder-panel" aria-label="녹음기">
+    <div className={recordingState === "recording" ? "recorder-panel is-recording" : "recorder-panel"} aria-label="\ub179\uc74c\uae30">
       <button
         className={recordingState === "recording" ? "recorder-button recording" : "recorder-button"}
         type="button"
         onClick={recordingState === "recording" ? stopRecording : startRecording}
-        title={recordingState === "recording" ? "녹음 종료" : "현재 재생음과 마이크 녹음"}
+        title={recordingState === "recording" ? "\ub179\uc74c \uc885\ub8cc" : "\ud604\uc7ac \uc7ac\uc0dd\uc74c\uacfc \ub9c8\uc774\ud06c \ub179\uc74c"}
       >
         {recordingState === "recording" ? <Square size={15} fill="currentColor" /> : <Mic size={15} />}
-        <span>{recordingState === "recording" ? "정지" : "녹음"}</span>
+        <span>{recordingState === "recording" ? "\uc815\uc9c0" : "\ub179\uc74c"}</span>
       </button>
+      <span className={recordingState === "recording" ? "recorder-status active" : "recorder-status"}>
+        {recordingState === "recording" ? `REC ${formatTime(recordingSeconds)}` : previewUrl ? "\ub179\uc74c\ud30c\uc77c" : "\ub300\uae30"}
+      </span>
       <button
         className="recorder-icon-button"
         type="button"
         onClick={togglePreview}
         disabled={!previewUrl || recordingState === "recording"}
-        title="녹음 파일 재생/일시정지"
+        title="\ub179\uc74c \ud30c\uc77c \uc7ac\uc0dd/\uc77c\uc2dc\uc815\uc9c0"
       >
         {isPreviewPlaying ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" />}
       </button>
+      <input
+        className="recorder-seek"
+        type="range"
+        min="0"
+        max={previewDuration || 0}
+        step="0.1"
+        value={Math.min(previewTime, previewDuration || 0)}
+        disabled={!previewUrl || recordingState === "recording"}
+        onChange={(event) => {
+          const nextTime = Number(event.target.value);
+          if (previewAudioRef.current) previewAudioRef.current.currentTime = nextTime;
+          setPreviewTime(nextTime);
+        }}
+        aria-label="\ub179\uc74c \ud30c\uc77c \uc7ac\uc0dd \uc704\uce58"
+      />
+      <span className="recorder-time">
+        {formatTime(previewTime)} / {formatTime(previewDuration)}
+      </span>
       <button
         className="recorder-icon-button"
         type="button"
         onClick={saveRecording}
         disabled={!previewUrl || recordingState === "recording"}
-        title="녹음 파일 저장"
+        title="\ub179\uc74c \ud30c\uc77c \uc800\uc7a5"
       >
         <Save size={15} />
       </button>
-      <label className="recorder-icon-button" title="저장한 녹음 파일 불러오기">
+      <label className="recorder-icon-button" title="\uc800\uc7a5\ud55c \ub179\uc74c \ud30c\uc77c \ubd88\ub7ec\uc624\uae30">
         <FolderOpen size={15} />
         <input
           type="file"
@@ -1311,6 +1346,8 @@ function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedS
       <audio
         ref={previewAudioRef}
         src={previewUrl}
+        onLoadedMetadata={(event) => setPreviewDuration(event.currentTarget.duration || 0)}
+        onTimeUpdate={(event) => setPreviewTime(event.currentTarget.currentTime || 0)}
         onEnded={() => setIsPreviewPlaying(false)}
         onPause={() => setIsPreviewPlaying(false)}
         preload="metadata"
@@ -1318,7 +1355,6 @@ function RecorderPanel({ isVisible, audioRef, splitRefs, playbackMode, selectedS
     </div>
   );
 }
-
 function PlayList({
   songs,
   selectedSong,

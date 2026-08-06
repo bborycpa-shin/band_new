@@ -94,6 +94,14 @@ h1 {
   justify-content: flex-end;
 }
 
+.recorder-strip {
+  position: sticky;
+  top: 58px;
+  z-index: 5;
+  padding: 0 0 8px;
+  background: #f3f6fb;
+}
+
 .lock-button {
   display: grid;
   place-items: center;
@@ -126,12 +134,20 @@ h1 {
 .recorder-panel {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px;
   border: 1px solid #e0e8f4;
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 1px 8px rgba(24, 32, 51, 0.08);
+}
+
+.recorder-panel.is-recording {
+  border-color: #fca5a5;
+  background: #fff7f7;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.08), 0 1px 8px rgba(24, 32, 51, 0.08);
 }
 
 .recorder-panel audio,
@@ -177,12 +193,57 @@ h1 {
   cursor: not-allowed;
 }
 
+.recorder-status {
+  flex: 0 0 auto;
+  min-width: 58px;
+  color: #69758a;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.recorder-status.active {
+  min-width: 72px;
+  color: #dc2626;
+  animation: recordPulse 1s ease-in-out infinite;
+}
+
+.recorder-seek {
+  flex: 1 1 160px;
+  min-width: 80px;
+  max-width: 280px;
+  height: 4px;
+  accent-color: #dc2626;
+}
+
+.recorder-seek:disabled {
+  opacity: 0.45;
+}
+
+.recorder-time {
+  flex: 0 0 auto;
+  color: #5f6c81;
+  font-size: 0.7rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+@keyframes recordPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 .tabbar {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   position: sticky;
-  top: 58px;
+  top: 104px;
   z-index: 5;
   padding: 6px 0 10px;
   background: #f3f6fb;
@@ -209,6 +270,7 @@ h1 {
 }
 
 .admin-mode .topbar,
+.admin-mode .recorder-strip,
 .admin-mode .tabbar {
   background: #fff1f2;
 }
@@ -1010,11 +1072,15 @@ input[type="range"] {
     gap: 6px;
   }
 
+  .recorder-strip {
+    top: 50px;
+    padding-bottom: 6px;
+  }
+
   .recorder-panel {
-    order: 3;
-    width: 100%;
-    justify-content: flex-end;
-    padding: 3px;
+    gap: 4px;
+    justify-content: flex-start;
+    padding: 4px;
   }
 
   .recorder-button {
@@ -1029,8 +1095,27 @@ input[type="range"] {
     min-height: 28px;
   }
 
+  .recorder-status {
+    min-width: 38px;
+    font-size: 0.62rem;
+  }
+
+  .recorder-status.active {
+    min-width: 54px;
+  }
+
+  .recorder-seek {
+    flex-basis: 78px;
+    min-width: 54px;
+    max-width: none;
+  }
+
+  .recorder-time {
+    font-size: 0.62rem;
+  }
+
   .tabbar {
-    top: 50px;
+    top: 90px;
   }
 
   .tabbar {
