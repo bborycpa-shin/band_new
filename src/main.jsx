@@ -100,6 +100,45 @@ function uniqueFileName(file) {
   return `${Date.now()}-${crypto.randomUUID()}-${safeFileName(file)}`;
 }
 
+function uniqueJpegFileName(file) {
+  const baseName = safeName(file.name.replace(/\.[^.]+$/, ""));
+  return `${Date.now()}-${crypto.randomUUID()}-${baseName === "file" ? "photo" : baseName}.jpg`;
+}
+
+function loadImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const image = new window.Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("이미지를 읽을 수 없습니다."));
+    };
+    image.src = objectUrl;
+  });
+}
+
+async function resizeImageFile(file, { maxSize, quality, name }) {
+  if (!file.type.startsWith("image/")) return file;
+
+  const image = await loadImageElement(file);
+  const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+  if (!blob) return file;
+  return new File([blob], name, { type: "image/jpeg", lastModified: Date.now() });
+}
+
 function newSongFolderName() {
   return `song-${Date.now()}`;
 }
@@ -569,15 +608,30 @@ function App() {
 
     const bucket = supabaseConfig.buckets.album;
     for (const file of files) {
-      const path = `${album.id}/${uniqueFileName(file)}`;
-      const { error } = await supabase.storage.from(bucket).upload(path, file, {
+      const fileName = uniqueJpegFileName(file);
+      const path = `${album.id}/${fileName}`;
+      const thumbnailPath = `${album.id}/.thumbs/${fileName}`;
+      const displayImage = await resizeImageFile(file, { maxSize: 2200, quality: 0.82, name: fileName });
+      const thumbnail = await resizeImageFile(file, { maxSize: 360, quality: 0.72, name: fileName });
+      const { error } = await supabase.storage.from(bucket).upload(path, displayImage, {
         cacheControl: "3600",
+        contentType: "image/jpeg",
         upsert: true
       });
 
       if (error) {
         window.alert(`사진 업로드 실패: ${error.message}`);
         continue;
+      }
+
+      const { error: thumbnailError } = await supabase.storage.from(bucket).upload(thumbnailPath, thumbnail, {
+        cacheControl: "3600",
+        contentType: "image/jpeg",
+        upsert: true
+      });
+
+      if (thumbnailError) {
+        window.alert(`썸네일 업로드 실패: ${thumbnailError.message}`);
       }
 
       await setDisplayName(bucket, path, file.name);
@@ -592,13 +646,15 @@ function App() {
     if (!ok) return;
 
     const bucket = supabaseConfig.buckets.album;
-    const { error } = await supabase.storage.from(bucket).remove([image.path]);
+    const removePaths = [image.path, image.thumbnailPath].filter(Boolean);
+    const { error } = await supabase.storage.from(bucket).remove(removePaths);
     if (error) {
       window.alert(`사진 삭제 실패: ${error.message}`);
       return;
     }
 
     await removeDisplayName(bucket, image.path);
+    if (image.thumbnailPath) await removeDisplayName(bucket, image.thumbnailPath);
     await refreshAlbumLibrary(album.id);
   }
 
@@ -608,7 +664,7 @@ function App() {
     if (!ok) return;
 
     const bucket = supabaseConfig.buckets.album;
-    const paths = album.images.map((image) => image.path).filter(Boolean);
+    const paths = album.images.flatMap((image) => [image.path, image.thumbnailPath]).filter(Boolean);
     if (paths.length) {
       const { error } = await supabase.storage.from(bucket).remove(paths);
       if (error) {
@@ -1154,7 +1210,7 @@ function AlbumPanel({
             {selectedAlbum.images.map((image, index) => (
               <div className="photo-thumb" key={image.path}>
                 <button type="button" onClick={() => setViewerIndex(index)}>
-                  <img src={image.url} alt={image.label} loading="lazy" />
+                  <img src={image.thumbnailUrl || image.url} alt={image.label} loading="lazy" />
                 </button>
                 <div className="photo-thumb-caption">
                   <span>{image.label}</span>

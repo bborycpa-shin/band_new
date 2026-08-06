@@ -61,7 +61,10 @@ export async function loadSupabaseAlbums() {
       loadFileManifest(bucket).catch(() => ({}))
     ]);
     const albumMeta = manifest.__albumFolders ?? {};
-    const imageFiles = files.filter((path) => path.includes("/") && hasImageExtension(path));
+    const imageFiles = files.filter(
+      (path) => path.includes("/") && !path.includes("/.thumbs/") && hasImageExtension(path)
+    );
+    const thumbnailFiles = files.filter((path) => path.includes("/.thumbs/") && hasImageExtension(path));
     const folders = [
       ...new Set([
         ...Object.keys(albumMeta),
@@ -84,11 +87,17 @@ export async function loadSupabaseAlbums() {
       title: albumMeta[folder]?.title || titleFromFolder(folder),
       images: imageFiles
         .filter((path) => path.startsWith(`${folder}/`))
-        .map((path) => ({
-          path,
-          label: manifest[path]?.displayName || titleFromPath(path) || path,
-          url: publicUrl(bucket, path)
-        }))
+        .map((path) => {
+          const fileName = path.split("/").pop();
+          const thumbnailPath = thumbnailFiles.find((thumbnail) => thumbnail === `${folder}/.thumbs/${fileName}`);
+          return {
+            path,
+            thumbnailPath: thumbnailPath || "",
+            label: manifest[path]?.displayName || titleFromPath(path) || path,
+            url: publicUrl(bucket, path),
+            thumbnailUrl: thumbnailPath ? publicUrl(bucket, thumbnailPath) : publicUrl(bucket, path)
+          };
+        })
     }));
 
     return {
