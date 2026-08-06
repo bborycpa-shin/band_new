@@ -7,12 +7,14 @@ import {
   ListMusic,
   Music2,
   Pause,
+  Pencil,
   Play,
   Repeat,
   Shuffle,
   SkipBack,
   SkipForward,
   SlidersHorizontal,
+  Trash2,
   UploadCloud,
   Users,
   Volume2
@@ -45,12 +47,23 @@ function clamp(value, min, max) {
 }
 
 function safeName(value) {
-  return value
+  const cleaned = value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .replace(/\s+/g, "-")
-    .replace(/[^\w가-힣.-]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
     .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .toLowerCase();
+  return cleaned || "file";
+}
+
+function safeFileName(file) {
+  const extension = file.name.includes(".") ? `.${file.name.split(".").pop().toLowerCase()}` : "";
+  const baseName = file.name.replace(/\.[^.]+$/, "");
+  const cleanBase = safeName(baseName);
+  return cleanBase === "file" ? `upload${extension}` : `${cleanBase}${extension}`;
 }
 
 function App() {
@@ -76,21 +89,23 @@ function App() {
     [appSongs, selectedId]
   );
 
+  async function refreshLibrary(nextSelectedId = selectedId) {
+    const result = await loadSupabaseSongs();
+    setAppSongs(result.songs);
+    setSelectedId(
+      result.songs.some((song) => song.id === nextSelectedId)
+        ? nextSelectedId
+        : result.songs[0]?.id ?? sampleSongs[0].id
+    );
+    if (result.source === "supabase") {
+      setLibraryStatus(`Supabase ${result.songs.length}곡`);
+    } else {
+      setLibraryStatus(result.error ? `샘플 목록: ${result.error}` : "샘플 목록");
+    }
+  }
+
   useEffect(() => {
-    let alive = true;
-    loadSupabaseSongs().then((result) => {
-      if (!alive) return;
-      setAppSongs(result.songs);
-      setSelectedId(result.songs[0]?.id ?? sampleSongs[0].id);
-      if (result.source === "supabase") {
-        setLibraryStatus(`Supabase ${result.songs.length}곡`);
-      } else {
-        setLibraryStatus(result.error ? `샘플 목록: ${result.error}` : "샘플 목록");
-      }
-    });
-    return () => {
-      alive = false;
-    };
+    refreshLibrary(sampleSongs[0].id);
   }, []);
 
   useEffect(() => {
@@ -276,7 +291,7 @@ function App() {
         )}
         {activeTab === "score" && <ScorePanel songs={appSongs} selectedSong={selectedSong} onSelect={selectSong} />}
         {activeTab === "album" && <AlbumPanel songs={appSongs} selectedSong={selectedSong} onSelect={selectSong} />}
-        {activeTab === "upload" && <UploadPanel selectedSong={selectedSong} />}
+        {activeTab === "upload" && <UploadPanel selectedSong={selectedSong} onLibraryRefresh={refreshLibrary} />}
         {activeTab === "member" && <MemberPanel />}
       </main>
 
@@ -473,13 +488,17 @@ function AlbumPanel({ songs, selectedSong, onSelect }) {
   );
 }
 
-function UploadPanel({ selectedSong }) {
+function UploadPanel({ selectedSong, onLibraryRefresh }) {
   const [category, setCategory] = useState("audio");
   const [instrument, setInstrument] = useState("vocal");
   const [songSlug, setSongSlug] = useState(selectedSong.id);
   const [queue, setQueue] = useState([]);
+  const [files, setFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [message, setMessage] = useState("");
+  const [editingPath, setEditingPath] = useState("");
+  const [editingName, setEditingName] = useState("");
 
   useEffect(() => {
     setSongSlug(selectedSong.id);
@@ -487,6 +506,10 @@ function UploadPanel({ selectedSong }) {
 
   const bucket = supabaseConfig.buckets[category];
   const canUpload = Boolean(supabase && bucket);
+
+  useEffect(() => {
+    refreshFiles();
+  }, [category]);
 
   function addFiles(fileList) {
     const files = Array.from(fileList ?? []);
@@ -504,11 +527,52 @@ function UploadPanel({ selectedSong }) {
 
   function buildPath(file) {
     const cleanSong = safeName(songSlug || selectedSong.id || "song");
-    const cleanFile = safeName(file.name);
+    const cleanFile = safeFileName(file);
     if (category === "split") return `${cleanSong}/${instrument}/${Date.now()}-${cleanFile}`;
     if (category === "score") return `${cleanSong}/${Date.now()}-${cleanFile}`;
     if (category === "album") return `${cleanSong}/${Date.now()}-${cleanFile}`;
     return `${cleanSong}/full/${Date.now()}-${cleanFile}`;
+  }
+
+  async function listStorageFiles(prefix = "") {
+    const { data, error } = await supabase.storage.from(bucket).list(prefix, {
+      limit: 1000,
+      sortBy: { column: "name", order: "asc" }
+    });
+
+    if (error) throw error;
+
+    const nextFiles = [];
+    for (const entry of data ?? []) {
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.id === null) {
+        nextFiles.push(...(await listStorageFiles(path)));
+      } else {
+        nextFiles.push({
+          name: entry.name,
+          path,
+          size: entry.metadata?.size ?? 0,
+          updatedAt: entry.updated_at ?? entry.created_at ?? ""
+        });
+      }
+    }
+    return nextFiles;
+  }
+
+  async function refreshFiles() {
+    if (!canUpload) {
+      setFiles([]);
+      return;
+    }
+
+    setIsLoadingFiles(true);
+    try {
+      setFiles(await listStorageFiles());
+    } catch (error) {
+      setMessage(`파일 목록 조회 실패: ${error.message}`);
+    } finally {
+      setIsLoadingFiles(false);
+    }
   }
 
   async function uploadAll() {
@@ -538,6 +602,55 @@ function UploadPanel({ selectedSong }) {
 
     setQueue(nextQueue);
     setMessage("업로드 처리가 끝났습니다.");
+    await refreshFiles();
+    if (category === "audio") {
+      await onLibraryRefresh(nextQueue.find((item) => item.status === "완료")?.path?.split("/")[0]);
+    }
+  }
+
+  async function deleteFile(path) {
+    if (!canUpload) return;
+    const ok = window.confirm(`${path} 파일을 삭제할까요?`);
+    if (!ok) return;
+
+    const { error } = await supabase.storage.from(bucket).remove([path]);
+    if (error) {
+      setMessage(`삭제 실패: ${error.message}`);
+      return;
+    }
+
+    setMessage("파일을 삭제했습니다.");
+    await refreshFiles();
+    if (category === "audio") await onLibraryRefresh();
+  }
+
+  async function renameFile(path) {
+    if (!canUpload || !editingName.trim()) return;
+
+    const parts = path.split("/");
+    const currentName = parts[parts.length - 1];
+    const currentExtension = currentName.includes(".") ? `.${currentName.split(".").pop()}` : "";
+    const nextName = safeName(editingName);
+    parts[parts.length - 1] = nextName.includes(".") || !currentExtension ? nextName : `${nextName}${currentExtension}`;
+    const nextPath = parts.join("/");
+
+    if (nextPath === path) {
+      setEditingPath("");
+      setEditingName("");
+      return;
+    }
+
+    const { error } = await supabase.storage.from(bucket).move(path, nextPath);
+    if (error) {
+      setMessage(`이름 변경 실패: ${error.message}`);
+      return;
+    }
+
+    setMessage("파일명을 변경했습니다.");
+    setEditingPath("");
+    setEditingName("");
+    await refreshFiles();
+    if (category === "audio") await onLibraryRefresh();
   }
 
   return (
@@ -610,6 +723,9 @@ function UploadPanel({ selectedSong }) {
         <button onClick={() => setQueue([])} disabled={!queue.length}>
           목록 비우기
         </button>
+        <button onClick={refreshFiles} disabled={!canUpload || isLoadingFiles}>
+          파일 새로고침
+        </button>
       </div>
 
       {message && <p className="upload-message">{message}</p>}
@@ -623,6 +739,60 @@ function UploadPanel({ selectedSong }) {
               {item.publicUrl && <a href={item.publicUrl}>{item.publicUrl}</a>}
             </div>
             <em>{item.status}</em>
+          </div>
+        ))}
+      </div>
+
+      <div className="section-title file-manager-title">
+        <h2>버킷 파일 관리</h2>
+        <span>{isLoadingFiles ? "불러오는 중" : `${files.length}개`}</span>
+      </div>
+
+      <div className="upload-list">
+        {files.map((file) => (
+          <div className="upload-row file-row" key={file.path}>
+            <div>
+              {editingPath === file.path ? (
+                <input
+                  className="rename-input"
+                  value={editingName}
+                  onChange={(event) => setEditingName(event.target.value)}
+                />
+              ) : (
+                <strong>{file.name}</strong>
+              )}
+              <span>{file.path}</span>
+            </div>
+            <div className="file-actions">
+              {editingPath === file.path ? (
+                <>
+                  <button onClick={() => renameFile(file.path)}>저장</button>
+                  <button
+                    onClick={() => {
+                      setEditingPath("");
+                      setEditingName("");
+                    }}
+                  >
+                    취소
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    title="파일명 변경"
+                    onClick={() => {
+                      setEditingPath(file.path);
+                      setEditingName(file.name);
+                    }}
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  <button title="삭제" onClick={() => deleteFile(file.path)}>
+                    <Trash2 size={15} />
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         ))}
       </div>

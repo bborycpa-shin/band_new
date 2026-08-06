@@ -449,6 +449,43 @@ input[type="range"] {
   font-weight: 900;
 }
 
+.file-manager-title {
+  margin-top: 8px;
+}
+
+.file-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.file-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-actions button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  color: #33405b;
+  background: #edf2fa;
+  font-weight: 900;
+}
+
+.rename-input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid #b8c6dc;
+  border-radius: 8px;
+  padding: 0 9px;
+  color: #182033;
+  background: #ffffff;
+  font-weight: 900;
+}
+
 .player {
   position: fixed;
   left: 50%;
