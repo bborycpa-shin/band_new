@@ -362,8 +362,8 @@ h1 {
   justify-content: center;
   gap: 7px;
   width: 100%;
-  min-height: 38px;
-  margin-bottom: 12px;
+  min-height: 34px;
+  margin-bottom: 2px;
   border: 0;
   border-radius: 8px;
   color: #ffffff;
@@ -382,12 +382,16 @@ h1 {
 
 .split-inline-controls {
   display: grid;
-  gap: 10px;
+  gap: 7px;
   margin: -1px 0 8px;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid #d6efe5;
   border-radius: 0 0 8px 8px;
   background: #f0fdf8;
+}
+
+.split-hidden-audios {
+  display: none;
 }
 
 .split-row-actions {
@@ -423,15 +427,15 @@ h1 {
 
 .mixer {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .track-row {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) 44px 34px 34px;
+  grid-template-columns: 74px minmax(0, 1fr) 38px 30px 30px;
   align-items: center;
-  gap: 10px;
-  padding: 8px;
+  gap: 7px;
+  padding: 6px;
   border-radius: 8px;
   background: #f8fafd;
 }
@@ -442,9 +446,33 @@ h1 {
   cursor: not-allowed;
 }
 
+.track-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .track-row label {
   font-size: 0.82rem;
   font-weight: 900;
+}
+
+.track-mute-button {
+  min-width: 29px;
+  min-height: 22px;
+  border: 1px solid #d8e3f1;
+  border-radius: 6px;
+  color: #526079;
+  background: #ffffff;
+  font-size: 0.62rem;
+  font-weight: 900;
+}
+
+.track-mute-button.active {
+  color: #ffffff;
+  border-color: #ef4444;
+  background: #ef4444;
 }
 
 input[type="range"] {
@@ -458,9 +486,16 @@ input[type="range"] {
   flex-wrap: wrap;
 }
 
+.split-preset-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 5px;
+  margin-top: 0;
+}
+
 .preset-row button {
-  min-width: 58px;
-  height: 32px;
+  min-width: 54px;
+  height: 30px;
   color: #33405b;
   background: #edf2fa;
   font-weight: 900;
@@ -831,13 +866,37 @@ input[type="range"] {
   }
 
   .split-inline-controls {
-    padding: 8px;
+    gap: 6px;
+    padding: 7px;
   }
 
   .track-row {
-    grid-template-columns: 46px minmax(0, 1fr) 34px 30px 30px;
-    gap: 6px;
-    padding: 7px;
+    grid-template-columns: 66px minmax(0, 1fr) 32px 28px 28px;
+    gap: 5px;
+    padding: 5px;
+  }
+
+  .track-row label {
+    font-size: 0.74rem;
+  }
+
+  .track-mute-button {
+    min-width: 25px;
+    min-height: 20px;
+    font-size: 0.56rem;
+  }
+
+  .split-preset-row {
+    gap: 4px;
+  }
+
+  .split-preset-row span {
+    font-size: 0.7rem;
+  }
+
+  .preset-row button {
+    min-width: 44px;
+    height: 28px;
   }
 
   .panel {

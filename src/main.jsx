@@ -200,6 +200,9 @@ function App() {
   const [splitVolumes, setSplitVolumes] = useState(() =>
     Object.fromEntries(instruments.map((instrument) => [instrument.key, 0.7]))
   );
+  const [splitMuted, setSplitMuted] = useState(() =>
+    Object.fromEntries(instruments.map((instrument) => [instrument.key, false]))
+  );
   const audioRef = useRef(null);
   const splitRefs = useRef({});
 
@@ -315,9 +318,9 @@ function App() {
       const audio = splitRefs.current[instrument.key];
       if (!audio) return;
       audio.playbackRate = rate;
-      audio.volume = splitVolumes[instrument.key];
+      audio.volume = splitMuted[instrument.key] ? 0 : splitVolumes[instrument.key];
     });
-  }, [rate, splitVolumes, selectedSplitSong]);
+  }, [rate, splitVolumes, splitMuted, selectedSplitSong]);
 
   useEffect(() => {
     setIsPlaying(false);
@@ -354,11 +357,11 @@ function App() {
     activeAudios.forEach((audio) => {
       audio.currentTime = 0;
       audio.playbackRate = rate;
-      audio.volume = splitVolumes[audio.dataset.instrument] ?? 0.7;
+      audio.volume = splitMuted[audio.dataset.instrument] ? 0 : splitVolumes[audio.dataset.instrument] ?? 0.7;
     });
     Promise.allSettled(activeAudios.map((audio) => audio.play())).then(() => setIsPlaying(true));
     setPendingSplitPlayId("");
-  }, [pendingSplitPlayId, selectedSplitSong, rate, splitVolumes]);
+  }, [pendingSplitPlayId, selectedSplitSong, rate, splitVolumes, splitMuted]);
 
   function selectSong(song) {
     setSelectedId(song.id);
@@ -434,7 +437,7 @@ function App() {
     activeAudios.forEach((audio) => {
       audio.currentTime = currentTime;
       audio.playbackRate = rate;
-      audio.volume = splitVolumes[audio.dataset.instrument] ?? 0.7;
+      audio.volume = splitMuted[audio.dataset.instrument] ? 0 : splitVolumes[audio.dataset.instrument] ?? 0.7;
     });
     await Promise.allSettled(activeAudios.map((audio) => audio.play()));
     setIsPlaying(true);
@@ -455,7 +458,7 @@ function App() {
         audio.src = src;
         audio.currentTime = 0;
         audio.playbackRate = rate;
-        audio.volume = splitVolumes[instrument.key] ?? 0.7;
+        audio.volume = splitMuted[instrument.key] ? 0 : splitVolumes[instrument.key] ?? 0.7;
         return audio;
       })
       .filter(Boolean);
@@ -984,7 +987,9 @@ function App() {
             libraryStatus={splitLibraryStatus}
             splitRefs={splitRefs}
             splitVolumes={splitVolumes}
+            splitMuted={splitMuted}
             setSplitVolumes={setSplitVolumes}
+            setSplitMuted={setSplitMuted}
             setAllSplitVolumes={setAllSplitVolumes}
             setCurrentTime={handleTrackedTime}
             setDuration={setDuration}
@@ -1235,7 +1240,9 @@ function SplitPanel({
   libraryStatus,
   splitRefs,
   splitVolumes,
+  splitMuted,
   setSplitVolumes,
+  setSplitMuted,
   setAllSplitVolumes,
   setCurrentTime,
   setDuration,
@@ -1247,8 +1254,38 @@ function SplitPanel({
   onDeleteSplitTrack,
   onDeleteSplitSong
 }) {
+  const [expandedSongId, setExpandedSongId] = useState(selectedSong.id);
+
+  function selectOrToggleSong(song) {
+    onSelect(song);
+    setExpandedSongId((current) => (current === song.id ? "" : song.id));
+  }
+
   function renderSplitControls(song) {
     if (song.id !== selectedSong.id) return null;
+
+    const splitAudios = instruments.map((instrument) => (
+      <audio
+        key={song.splitTrackPaths?.[instrument.key] || `${song.id}-${instrument.key}`}
+        data-instrument={instrument.key}
+        ref={(node) => {
+          if (node) splitRefs.current[instrument.key] = node;
+        }}
+        src={song.splitTracks[instrument.key]}
+        preload="metadata"
+        onLoadedMetadata={(event) => {
+          if (instrument.key === "vocal") setDuration(event.currentTarget.duration);
+        }}
+        onTimeUpdate={(event) => {
+          if (instrument.key === "vocal") setCurrentTime(event.currentTarget.currentTime);
+        }}
+        onEnded={() => setIsPlaying(false)}
+      />
+    ));
+
+    if (expandedSongId !== song.id) {
+      return <div className="split-hidden-audios">{splitAudios}</div>;
+    }
 
     return (
       <div className="split-inline-controls">
@@ -1266,10 +1303,34 @@ function SplitPanel({
           />
         </label>
 
+        <div className="preset-row split-preset-row" aria-label="전체 볼륨">
+          <span>전체 볼륨</span>
+          {[0, 0.3, 0.5, 0.7, 1].map((preset) => (
+            <button key={preset} onClick={() => setAllSplitVolumes(preset)}>
+              {Math.round(preset * 100)}%
+            </button>
+          ))}
+        </div>
+
         <div className="mixer">
           {instruments.map((instrument) => (
             <div className="track-row" key={instrument.key}>
-              <label>{instrument.label}</label>
+              <div className="track-name">
+                <label>{instrument.label}</label>
+                <button
+                  className={splitMuted[instrument.key] ? "track-mute-button active" : "track-mute-button"}
+                  type="button"
+                  title={`${instrument.label} 음소거`}
+                  onClick={() =>
+                    setSplitMuted((current) => ({
+                      ...current,
+                      [instrument.key]: !current[instrument.key]
+                    }))
+                  }
+                >
+                  {splitMuted[instrument.key] ? "해제" : "Mute"}
+                </button>
+              </div>
               <input
                 type="range"
                 min="0"
@@ -1304,33 +1365,9 @@ function SplitPanel({
               >
                 <Trash2 size={15} />
               </button>
-              <audio
-                key={song.splitTrackPaths?.[instrument.key] || `${song.id}-${instrument.key}`}
-                data-instrument={instrument.key}
-                ref={(node) => {
-                  if (node) splitRefs.current[instrument.key] = node;
-                }}
-                src={song.splitTracks[instrument.key]}
-                preload="metadata"
-                onLoadedMetadata={(event) => {
-                  if (instrument.key === "vocal") setDuration(event.currentTarget.duration);
-                }}
-                onTimeUpdate={(event) => {
-                  if (instrument.key === "vocal") setCurrentTime(event.currentTarget.currentTime);
-                }}
-                onEnded={() => setIsPlaying(false)}
-              />
             </div>
           ))}
-        </div>
-
-        <div className="preset-row" aria-label="전체 볼륨">
-          <span>전체 볼륨</span>
-          {[0, 0.3, 0.5, 0.7, 1].map((preset) => (
-            <button key={preset} onClick={() => setAllSplitVolumes(preset)}>
-              {Math.round(preset * 100)}%
-            </button>
-          ))}
+          {splitAudios}
         </div>
       </div>
     );
@@ -1350,7 +1387,7 @@ function SplitPanel({
       <SongList
         songs={songs}
         selectedSong={selectedSong}
-        onSelect={onSelect}
+        onSelect={selectOrToggleSong}
         mode="split"
         renderSongAction={(song) => (
           <div className="split-row-actions" onClick={(event) => event.stopPropagation()}>
@@ -1359,7 +1396,11 @@ function SplitPanel({
               type="button"
               title="분할 전체 재생"
               disabled={!song.partsReady}
-              onClick={() => onPlaySplitSong?.(song)}
+              onClick={() => {
+                onSelect(song);
+                setExpandedSongId(song.id);
+                onPlaySplitSong?.(song);
+              }}
             >
               <Play size={14} fill="currentColor" />
             </button>
