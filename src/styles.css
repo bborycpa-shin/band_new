@@ -183,7 +183,7 @@ h1 {
 }
 
 .song-row.editable {
-  grid-template-columns: 26px minmax(0, 1fr) 28px auto auto;
+  grid-template-columns: 26px minmax(0, 1fr) 28px auto;
 }
 
 .song-row.selected {
@@ -198,8 +198,8 @@ h1 {
 .song-main:focus-visible,
 .song-actions button:focus,
 .song-actions button:focus-visible,
-.song-order-actions button:focus,
-.song-order-actions button:focus-visible,
+.playlist-order-actions button:focus,
+.playlist-order-actions button:focus-visible,
 .mini-file-button:focus,
 .mini-file-button:focus-visible {
   outline: none;
@@ -245,14 +245,12 @@ h1 {
   font-weight: 900;
 }
 
-.song-order-actions,
 .song-actions {
   display: inline-flex;
   align-items: center;
   gap: 3px;
 }
 
-.song-order-actions button,
 .song-actions button,
 .mini-file-button,
 .track-upload-button {
@@ -268,7 +266,24 @@ h1 {
   font-weight: 900;
 }
 
-.song-order-actions button:disabled {
+.playlist-order-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.playlist-order-actions button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  min-height: 26px;
+  border: 0;
+  border-radius: 7px;
+  color: #33405b;
+  background: #edf2fa;
+}
+
+.playlist-order-actions button:disabled {
   color: #b9c4d5;
   background: #f3f6fb;
   cursor: not-allowed;

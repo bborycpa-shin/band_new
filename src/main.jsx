@@ -468,12 +468,32 @@ function PlayList({
   onDeleteSong,
   onReorderSongs
 }) {
+  const selectedIndex = songs.findIndex((song) => song.id === selectedSong.id);
+
   return (
     <section className="panel">
       <div className="section-title">
         <h2>플레이리스트</h2>
         <div className="section-actions">
           <span>{libraryStatus}</span>
+          <div className="playlist-order-actions" aria-label="Selected song order">
+            <button
+              type="button"
+              title="Move selected song up"
+              disabled={selectedIndex <= 0}
+              onClick={() => onReorderSongs?.(selectedIndex, selectedIndex - 1)}
+            >
+              <ArrowUp size={15} />
+            </button>
+            <button
+              type="button"
+              title="Move selected song down"
+              disabled={selectedIndex === -1 || selectedIndex >= songs.length - 1}
+              onClick={() => onReorderSongs?.(selectedIndex, selectedIndex + 1)}
+            >
+              <ArrowDown size={15} />
+            </button>
+          </div>
           <label className="mini-file-button text-file-button">
             곡 추가
             <input
@@ -496,7 +516,6 @@ function PlayList({
         onUploadSong={onUploadSong}
         onRenameSong={onRenameSong}
         onDeleteSong={onDeleteSong}
-        onReorderSongs={onReorderSongs}
       />
     </section>
   );
@@ -510,8 +529,7 @@ function SongList({
   editable = false,
   onUploadSong,
   onRenameSong,
-  onDeleteSong,
-  onReorderSongs
+  onDeleteSong
 }) {
   const [editingId, setEditingId] = useState("");
   const [editingName, setEditingName] = useState("");
@@ -549,26 +567,6 @@ function SongList({
               )}
             </button>
             <span className="song-meta">{mode === "split" ? `${song.partsReady}/6` : song.scores.length}</span>
-            {editable && (
-              <div className="song-order-actions">
-                <button
-                  type="button"
-                  title="위로 이동"
-                  disabled={index === 0}
-                  onClick={() => onReorderSongs?.(index, index - 1)}
-                >
-                  <ArrowUp size={14} />
-                </button>
-                <button
-                  type="button"
-                  title="아래로 이동"
-                  disabled={index === songs.length - 1}
-                  onClick={() => onReorderSongs?.(index, index + 1)}
-                >
-                  <ArrowDown size={14} />
-                </button>
-              </div>
-            )}
             {editable && (
               <div className="song-actions">
                 {isEditing ? (
