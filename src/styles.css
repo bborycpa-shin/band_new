@@ -602,6 +602,7 @@ input[type="range"] {
   left: 50%;
   bottom: 0;
   z-index: 4;
+  box-sizing: border-box;
   width: min(980px, 100%);
   transform: translateX(-50%);
   padding: 12px 14px 14px;
@@ -742,7 +743,7 @@ input[type="range"] {
 
 @media (max-width: 760px) {
   .app-shell {
-    padding: 10px 10px 186px;
+    padding: 10px 10px 154px;
   }
 
   .topbar {
@@ -771,22 +772,69 @@ input[type="range"] {
     padding: 10px;
   }
 
+  .player {
+    padding: 8px 8px 10px;
+  }
+
+  .player-head {
+    gap: 8px;
+  }
+
+  .player-head span {
+    font-size: 0.72rem;
+  }
+
+  .seek {
+    margin: 5px 0 4px;
+  }
+
   .rate-row {
     gap: 2px;
+    margin-bottom: 5px;
   }
 
   .rate {
     font-size: 0.66rem;
+    min-height: 22px;
+  }
+
+  .volume-row {
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin-bottom: 5px;
+  }
+
+  .volume-row input {
+    flex: 0 1 116px;
+    width: 116px;
+    max-width: 116px;
+  }
+
+  .volume-row span {
+    flex: 0 0 auto;
+    min-width: 34px;
+  }
+
+  .mini-toggle {
+    flex: 0 0 auto;
+    min-height: 26px;
+    padding: 0 7px;
+    font-size: 0.72rem;
   }
 
   .transport {
-    grid-template-columns: 28px 1fr 1fr 1fr 54px 1fr 1fr 1fr 28px;
-    gap: 3px;
+    grid-template-columns: 26px repeat(3, minmax(28px, 1fr)) 50px repeat(3, minmax(28px, 1fr)) 26px;
+    gap: 2px;
+  }
+
+  .transport button {
+    min-height: 30px;
+    font-size: 0.72rem;
   }
 
   .transport .play-button {
-    width: 54px;
-    height: 54px;
+    width: 50px;
+    height: 50px;
   }
 
 }
