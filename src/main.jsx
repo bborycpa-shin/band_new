@@ -33,6 +33,7 @@ import {
 } from "./lib/fileManifest";
 import { loadSupabaseSongs } from "./lib/loadSupabaseSongs";
 import { createEmptySplitSong, loadSupabaseSplitSongs } from "./lib/loadSupabaseSplitSongs";
+import { loadSupabaseSheets } from "./lib/loadSupabaseSheets";
 import { instruments, sampleSongs } from "./data/songs";
 import "./styles.css";
 
@@ -107,7 +108,10 @@ function App() {
   const [splitSongs, setSplitSongs] = useState([]);
   const [splitLibraryStatus, setSplitLibraryStatus] = useState("불러오는 중");
   const [selectedSplitId, setSelectedSplitId] = useState("");
+  const [sheetFiles, setSheetFiles] = useState([]);
+  const [sheetStatus, setSheetStatus] = useState("불러오는 중");
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackMode, setPlaybackMode] = useState("play");
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [rate, setRate] = useState(1);
@@ -159,9 +163,20 @@ function App() {
     }
   }
 
+  async function refreshSheetLibrary() {
+    const result = await loadSupabaseSheets();
+    setSheetFiles(result.sheets);
+    if (result.source === "supabase") {
+      setSheetStatus(`악보 ${result.sheets.length}개`);
+    } else {
+      setSheetStatus(result.error ? `악보 목록: ${result.error}` : "악보 없음");
+    }
+  }
+
   useEffect(() => {
     refreshLibrary("");
     refreshSplitLibrary("");
+    refreshSheetLibrary();
   }, []);
 
   useEffect(() => {
@@ -211,8 +226,12 @@ function App() {
     setActiveTab(nextTab);
   }
 
+  function currentPlayerMode() {
+    return isPlaying ? playbackMode : activeTab;
+  }
+
   async function togglePlay() {
-    if (activeTab === "split") {
+    if (currentPlayerMode() === "split") {
       await toggleSplitPlay();
       return;
     }
@@ -222,6 +241,7 @@ function App() {
 
     if (audio.paused) {
       pauseSplitTracks();
+      setPlaybackMode("play");
       await audio.play();
       setIsPlaying(true);
     } else {
@@ -244,6 +264,7 @@ function App() {
     }
 
     pauseMainAudio();
+    setPlaybackMode("split");
     activeAudios.forEach((audio) => {
       audio.currentTime = currentTime;
       audio.playbackRate = rate;
@@ -254,7 +275,7 @@ function App() {
   }
 
   function seekBy(seconds) {
-    if (activeTab === "split") {
+    if (currentPlayerMode() === "split") {
       const next = clamp(currentTime + seconds, 0, duration || 999999);
       instruments.forEach((instrument) => {
         const audio = splitRefs.current[instrument.key];
@@ -271,7 +292,7 @@ function App() {
 
   function seekTo(value) {
     const next = Number(value);
-    if (activeTab === "split") {
+    if (currentPlayerMode() === "split") {
       instruments.forEach((instrument) => {
         const audio = splitRefs.current[instrument.key];
         if (audio) audio.currentTime = next;
@@ -283,7 +304,7 @@ function App() {
   }
 
   function moveSong(offset) {
-    if (activeTab === "split") {
+    if (currentPlayerMode() === "split") {
       if (splitSongs.length < 1) return;
       const currentIndex = splitSongs.findIndex((song) => song.id === selectedSplitSong.id);
       const nextIndex = (currentIndex + offset + splitSongs.length) % splitSongs.length;
@@ -454,6 +475,28 @@ function App() {
     await refreshSplitLibrary(song.id);
   }
 
+  async function uploadSheetFile(file) {
+    if (!supabase || !file) return;
+
+    const bucket = supabaseConfig.buckets.score;
+    const path = `${Date.now()}-${safeFileName(file)}`;
+    const { error } = await supabase.storage.from(bucket).upload(path, file, {
+      cacheControl: "3600",
+      upsert: true
+    });
+
+    if (error) {
+      window.alert(`악보 업로드 실패: ${error.message}`);
+      return;
+    }
+
+    await setDisplayName(bucket, path, file.name);
+    await refreshSheetLibrary();
+  }
+
+  const playerMode = currentPlayerMode();
+  const playerSong = playerMode === "split" ? selectedSplitSong : selectedSong;
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -495,7 +538,7 @@ function App() {
             onReorderSongs={reorderSongs}
           />
         )}
-        {activeTab === "split" && (
+        <div className={activeTab === "split" ? "" : "tab-panel-hidden"}>
           <SplitPanel
             songs={splitSongs}
             selectedSong={selectedSplitSong}
@@ -512,17 +555,23 @@ function App() {
             onUploadSplitTrack={uploadSplitTrack}
             onDeleteSplitTrack={deleteSplitTrack}
           />
+        </div>
+        {activeTab === "score" && (
+          <ScorePanel
+            sheets={sheetFiles}
+            sheetStatus={sheetStatus}
+            onUploadSheet={uploadSheetFile}
+          />
         )}
-        {activeTab === "score" && <ScorePanel songs={appSongs} selectedSong={selectedSong} onSelect={selectSong} />}
         {activeTab === "album" && <AlbumPanel songs={appSongs} selectedSong={selectedSong} onSelect={selectSong} />}
         {activeTab === "upload" && <UploadPanel selectedSong={selectedSong} onLibraryRefresh={refreshLibrary} />}
         {activeTab === "member" && <MemberPanel />}
       </main>
 
       <PlayerBar
-        selectedSong={activeTab === "split" ? selectedSplitSong : selectedSong}
+        selectedSong={playerSong}
         audioRef={audioRef}
-        activeTab={activeTab}
+        activeTab={playerMode}
         isPlaying={isPlaying}
         setIsPlaying={setIsPlaying}
         duration={duration}
@@ -826,29 +875,37 @@ function SplitPanel({
   );
 }
 
-function ScorePanel({ songs, selectedSong, onSelect }) {
+function ScorePanel({ sheets, sheetStatus, onUploadSheet }) {
   return (
-    <section className="split-layout">
-      <div className="panel compact">
-        <div className="section-title">
-          <h2>악보</h2>
-          <span>다운로드</span>
+    <section className="panel">
+      <div className="section-title">
+        <h2>악보</h2>
+        <div className="section-actions">
+          <span>{sheetStatus}</span>
+          <label className="mini-file-button text-file-button">
+            악보 추가
+            <input
+              type="file"
+              accept=".pdf,image/*"
+              onChange={(event) => {
+                onUploadSheet?.(event.target.files?.[0]);
+                event.target.value = "";
+              }}
+            />
+          </label>
         </div>
-        <SongList songs={songs} selectedSong={selectedSong} onSelect={onSelect} />
       </div>
-      <div className="panel">
-        <div className="detail-head">
-          <Download size={18} />
-          <strong>{selectedSong.title}</strong>
-        </div>
-        <div className="score-list">
-          {selectedSong.scores.map((score) => (
-            <a className="score-row" href={score.url} download key={score.url}>
+      <div className="score-list standalone-score-list">
+        {sheets.length ? (
+          sheets.map((score) => (
+            <a className="score-row" href={score.url} download key={score.path}>
               <span>{score.label}</span>
               <Download size={16} />
             </a>
-          ))}
-        </div>
+          ))
+        ) : (
+          <div className="empty-list">등록된 악보가 없습니다.</div>
+        )}
       </div>
     </section>
   );

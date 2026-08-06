@@ -111,6 +111,10 @@ h1 {
   gap: 12px;
 }
 
+.tab-panel-hidden {
+  display: none;
+}
+
 .panel {
   background: #ffffff;
   border: 1px solid #e4eaf4;
@@ -377,6 +381,11 @@ input[type="range"] {
 .score-list {
   display: grid;
   gap: 10px;
+}
+
+.standalone-score-list {
+  max-height: calc(100vh - 250px);
+  overflow: auto;
 }
 
 .score-row {
