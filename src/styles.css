@@ -65,6 +65,7 @@ h1 {
 }
 
 .icon-button,
+.lock-button,
 .install-app-button,
 .transport button,
 .tab,
@@ -83,6 +84,28 @@ h1 {
   color: #25314a;
   background: #ffffff;
   box-shadow: 0 1px 8px rgba(24, 32, 51, 0.08);
+}
+
+.topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lock-button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  color: #25314a;
+  background: #ffffff;
+  box-shadow: 0 1px 8px rgba(24, 32, 51, 0.08);
+}
+
+.lock-button.active {
+  color: #ffffff;
+  background: #dc2626;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.28);
 }
 
 .install-app-button {
@@ -123,6 +146,46 @@ h1 {
 .tab.active {
   color: #ffffff;
   background: #5947e8;
+}
+
+.admin-mode {
+  background: #fff1f2;
+}
+
+.admin-mode .topbar,
+.admin-mode .tabbar {
+  background: #fff1f2;
+}
+
+.admin-mode .tab.active {
+  background: #dc2626;
+}
+
+.admin-mode .panel {
+  border-color: #fecdd3;
+  box-shadow: 0 8px 22px rgba(127, 29, 29, 0.08);
+}
+
+.admin-mode .song-row.selected {
+  border-color: #fda4af;
+  background: #fff1f2;
+  box-shadow: inset 3px 0 0 #dc2626;
+}
+
+.admin-mode .mini-file-button,
+.admin-mode .track-upload-button,
+.admin-mode .track-delete-button,
+.admin-mode .split-row-delete-button,
+.admin-mode .score-row button,
+.admin-mode .photo-thumb-caption button {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
+
+.admin-mode .split-bulk-upload-button,
+.admin-mode .split-row-play-button,
+.admin-mode .install-app-button {
+  background: #dc2626;
 }
 
 .content {
@@ -437,12 +500,16 @@ h1 {
 
 .track-row {
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr) 38px 30px 30px;
+  grid-template-columns: 74px minmax(0, 1fr) 38px;
   align-items: center;
   gap: 7px;
   padding: 6px;
   border-radius: 8px;
   background: #f8fafd;
+}
+
+.track-row.admin-track-row {
+  grid-template-columns: 74px minmax(0, 1fr) 38px 30px 30px;
 }
 
 .track-delete-button:disabled {
@@ -509,6 +576,37 @@ input[type="range"] {
 .score-list {
   display: grid;
   gap: 10px;
+}
+
+.score-song-list {
+  display: grid;
+  gap: 4px;
+  max-height: calc(100vh - 250px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.score-song-group {
+  display: grid;
+  gap: 4px;
+}
+
+.score-inline-list {
+  display: grid;
+  gap: 4px;
+  margin: -1px 0 8px;
+  padding: 7px;
+  border: 1px solid #e4eaf4;
+  border-radius: 0 0 8px 8px;
+  background: #f8fafd;
+}
+
+.score-upload-button {
+  margin-bottom: 4px;
+}
+
+.compact-empty {
+  min-height: 46px;
 }
 
 .standalone-score-list {
@@ -874,9 +972,13 @@ input[type="range"] {
   }
 
   .track-row {
-    grid-template-columns: 66px minmax(0, 1fr) 32px 28px 28px;
+    grid-template-columns: 66px minmax(0, 1fr) 32px;
     gap: 5px;
     padding: 5px;
+  }
+
+  .track-row.admin-track-row {
+    grid-template-columns: 66px minmax(0, 1fr) 32px 28px 28px;
   }
 
   .track-row label {
@@ -903,7 +1005,7 @@ input[type="range"] {
   }
 
   .photo-viewer {
-    padding: 54px 14px 76px;
+    padding: 62px 12px 126px;
   }
 
   .photo-grid {
@@ -919,9 +1021,9 @@ input[type="range"] {
   .photo-viewer img {
     width: auto;
     height: auto;
-    max-width: calc(100vw - 28px);
-    max-height: calc(100vh - 150px);
-    max-height: calc(100svh - 150px);
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 230px);
+    max-height: calc(100svh - 230px);
     object-fit: contain;
   }
 
@@ -946,7 +1048,7 @@ input[type="range"] {
   }
 
   .viewer-caption {
-    bottom: 18px;
+    bottom: 74px;
     max-width: calc(100vw - 28px);
   }
 

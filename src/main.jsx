@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Download,
-  Gauge,
   Image,
   ListMusic,
+  Lock,
   Music2,
   Pause,
   Pencil,
@@ -21,6 +21,7 @@ import {
   ChevronRight,
   UploadCloud,
   Users,
+  Unlock,
   Volume2,
   X
 } from "lucide-react";
@@ -185,6 +186,7 @@ function App() {
   const [albumFolders, setAlbumFolders] = useState([]);
   const [albumStatus, setAlbumStatus] = useState("불러오는 중");
   const [selectedAlbumId, setSelectedAlbumId] = useState("");
+  const [isAdminMode, setIsAdminMode] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackMode, setPlaybackMode] = useState("play");
   const [duration, setDuration] = useState(0);
@@ -779,13 +781,14 @@ function App() {
     await refreshSplitLibrary("");
   }
 
-  async function uploadSheetFile(file) {
+  async function uploadSheetFile(song, file) {
     const files = Array.from(file instanceof FileList ? file : file ? [file] : []);
     if (!supabase || !files.length) return;
 
     const bucket = supabaseConfig.buckets.score;
     for (const item of files) {
-      const path = uniqueFileName(item);
+      const folder = song?.id && song.id !== "empty" ? song.id : "common";
+      const path = `${folder}/${uniqueFileName(item)}`;
       const { error } = await supabase.storage.from(bucket).upload(path, item, {
         cacheControl: "3600",
         upsert: true
@@ -932,22 +935,28 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={isAdminMode ? "app-shell admin-mode" : "app-shell"}>
       <header className="topbar">
         <div>
           <p className="eyebrow">Band Player</p>
           <h1>계단밑딴따라</h1>
         </div>
-        {canInstallApp ? (
-          <button className="install-app-button" type="button" onClick={installApp}>
-            <Download size={16} />
-            앱 설치
+        <div className="topbar-actions">
+          <button
+            className={isAdminMode ? "lock-button active" : "lock-button"}
+            type="button"
+            title={isAdminMode ? "관리자모드 종료" : "관리자모드 진입"}
+            onClick={() => setIsAdminMode((current) => !current)}
+          >
+            {isAdminMode ? <Unlock size={18} /> : <Lock size={18} />}
           </button>
-        ) : (
-          <button className="icon-button" title="설정">
-            <Gauge size={19} />
-          </button>
-        )}
+          {canInstallApp && (
+            <button className="install-app-button" type="button" onClick={installApp}>
+              <Download size={16} />
+              앱 설치
+            </button>
+          )}
+        </div>
       </header>
 
       <nav className="tabbar" aria-label="주요 메뉴">
@@ -973,6 +982,7 @@ function App() {
             selectedSong={selectedSong}
             onSelect={selectSong}
             libraryStatus={libraryStatus}
+            isAdmin={isAdminMode}
             onUploadSong={uploadSongFile}
             onRenameSong={renameSong}
             onDeleteSong={deleteSong}
@@ -985,6 +995,7 @@ function App() {
             selectedSong={selectedSplitSong}
             onSelect={selectSplitSong}
             libraryStatus={splitLibraryStatus}
+            isAdmin={isAdminMode}
             splitRefs={splitRefs}
             splitVolumes={splitVolumes}
             splitMuted={splitMuted}
@@ -1005,7 +1016,9 @@ function App() {
         {activeTab === "score" && (
           <ScorePanel
             sheets={sheetFiles}
+            songs={appSongs}
             sheetStatus={sheetStatus}
+            isAdmin={isAdminMode}
             onUploadSheet={uploadSheetFile}
             onDeleteSheet={deleteSheetFile}
           />
@@ -1015,6 +1028,7 @@ function App() {
             albums={albumFolders}
             selectedAlbum={selectedAlbum}
             albumStatus={albumStatus}
+            isAdmin={isAdminMode}
             onSelectAlbum={setSelectedAlbumId}
             onAddAlbumFolder={addAlbumFolder}
             onUploadAlbumPhotos={uploadAlbumPhotos}
@@ -1057,6 +1071,7 @@ function PlayList({
   selectedSong,
   onSelect,
   libraryStatus,
+  isAdmin,
   onUploadSong,
   onRenameSong,
   onDeleteSong,
@@ -1070,7 +1085,7 @@ function PlayList({
         <h2>플레이리스트</h2>
         <div className="section-actions">
           <span>{libraryStatus}</span>
-          <div className="playlist-order-actions" aria-label="Selected song order">
+          {isAdmin && <div className="playlist-order-actions" aria-label="Selected song order">
             <button
               type="button"
               title="Move selected song up"
@@ -1087,8 +1102,8 @@ function PlayList({
             >
               <ArrowDown size={15} />
             </button>
-          </div>
-          <label className="mini-file-button text-file-button">
+          </div>}
+          {isAdmin && <label className="mini-file-button text-file-button">
             곡 추가
             <input
               type="file"
@@ -1099,7 +1114,7 @@ function PlayList({
                 event.target.value = "";
               }}
             />
-          </label>
+          </label>}
         </div>
       </div>
       <SongList
@@ -1107,7 +1122,7 @@ function PlayList({
         selectedSong={selectedSong}
         onSelect={onSelect}
         mode="play"
-        editable
+        editable={isAdmin}
         onUploadSong={onUploadSong}
         onRenameSong={onRenameSong}
         onDeleteSong={onDeleteSong}
@@ -1238,6 +1253,7 @@ function SplitPanel({
   selectedSong,
   onSelect,
   libraryStatus,
+  isAdmin,
   splitRefs,
   splitVolumes,
   splitMuted,
@@ -1289,7 +1305,7 @@ function SplitPanel({
 
     return (
       <div className="split-inline-controls">
-        <label className="split-bulk-upload-button" title="6개 분할 파일 일괄 업로드">
+        {isAdmin && <label className="split-bulk-upload-button" title="6개 분할 파일 일괄 업로드">
           <UploadCloud size={16} />
           <span>6개 파일 일괄 업로드</span>
           <input
@@ -1301,7 +1317,7 @@ function SplitPanel({
               event.target.value = "";
             }}
           />
-        </label>
+        </label>}
 
         <div className="preset-row split-preset-row" aria-label="전체 볼륨">
           <span>전체 볼륨</span>
@@ -1314,7 +1330,7 @@ function SplitPanel({
 
         <div className="mixer">
           {instruments.map((instrument) => (
-            <div className="track-row" key={instrument.key}>
+            <div className={isAdmin ? "track-row admin-track-row" : "track-row"} key={instrument.key}>
               <div className="track-name">
                 <label>{instrument.label}</label>
                 <button
@@ -1345,7 +1361,7 @@ function SplitPanel({
                 }
               />
               <span>{Math.round(splitVolumes[instrument.key] * 100)}%</span>
-              <label className="track-upload-button" title={`${instrument.label} 파일 업로드`}>
+              {isAdmin && <label className="track-upload-button" title={`${instrument.label} 파일 업로드`}>
                 <UploadCloud size={15} />
                 <input
                   type="file"
@@ -1355,8 +1371,8 @@ function SplitPanel({
                     event.target.value = "";
                   }}
                 />
-              </label>
-              <button
+              </label>}
+              {isAdmin && <button
                 className="track-delete-button"
                 type="button"
                 title={`${instrument.label} 파일 삭제`}
@@ -1364,7 +1380,7 @@ function SplitPanel({
                 onClick={() => onDeleteSplitTrack?.(song, instrument.key)}
               >
                 <Trash2 size={15} />
-              </button>
+              </button>}
             </div>
           ))}
           {splitAudios}
@@ -1379,9 +1395,9 @@ function SplitPanel({
         <h2>분할 재생</h2>
         <div className="section-actions">
           <span>{libraryStatus}</span>
-          <button className="mini-file-button text-file-button" type="button" onClick={onAddSplitSong}>
+          {isAdmin && <button className="mini-file-button text-file-button" type="button" onClick={onAddSplitSong}>
             분할곡 추가
-          </button>
+          </button>}
         </div>
       </div>
       <SongList
@@ -1404,7 +1420,7 @@ function SplitPanel({
             >
               <Play size={14} fill="currentColor" />
             </button>
-            <button
+            {isAdmin && <button
               className="split-row-delete-button"
               type="button"
               title="분할곡 삭제"
@@ -1412,7 +1428,7 @@ function SplitPanel({
               onClick={() => onDeleteSplitSong?.(song)}
             >
               <Trash2 size={14} />
-            </button>
+            </button>}
           </div>
         )}
         renderAfterSong={renderSplitControls}
@@ -1421,42 +1437,110 @@ function SplitPanel({
   );
 }
 
-function ScorePanel({ sheets, sheetStatus, onUploadSheet, onDeleteSheet }) {
+function ScorePanel({ sheets, songs, sheetStatus, isAdmin, onUploadSheet, onDeleteSheet }) {
+  const [expandedSongId, setExpandedSongId] = useState("");
+  const sheetGroups = useMemo(() => {
+    const groups = Object.fromEntries(songs.map((song) => [song.id, []]));
+    const extra = [];
+
+    sheets.forEach((sheet) => {
+      const folder = sheet.path.split("/")[0];
+      if (groups[folder]) {
+        groups[folder].push(sheet);
+      } else {
+        extra.push(sheet);
+      }
+    });
+
+    return { groups, extra };
+  }, [sheets, songs]);
+
+  const scoreRows = songs.map((song) => ({
+    id: song.id,
+    title: song.title,
+    sheets: sheetGroups.groups[song.id] ?? []
+  }));
+
+  if (sheetGroups.extra.length) {
+    scoreRows.push({
+      id: "common",
+      title: "기타 악보",
+      sheets: sheetGroups.extra
+    });
+  }
+
   return (
     <section className="panel">
       <div className="section-title">
         <h2>악보</h2>
         <div className="section-actions">
           <span>{sheetStatus}</span>
-          <label className="mini-file-button text-file-button">
-            악보 추가
-            <input
-              type="file"
-              accept=".pdf,image/*"
-              multiple
-              onChange={(event) => {
-                onUploadSheet?.(event.target.files);
-                event.target.value = "";
-              }}
-            />
-          </label>
         </div>
       </div>
-      <div className="score-list standalone-score-list">
-        {sheets.length ? (
-          sheets.map((score) => (
-            <div className="score-row" key={score.path}>
-              <a href={score.url} download>
-                <span>{score.label}</span>
-                <Download size={16} />
-              </a>
-              <button type="button" title="악보 삭제" onClick={() => onDeleteSheet?.(score)}>
-                <Trash2 size={15} />
-              </button>
+
+      <div className="score-song-list">
+        {scoreRows.length ? (
+          scoreRows.map((row, index) => (
+            <div className="score-song-group" key={row.id}>
+              <div
+                className={expandedSongId === row.id ? "song-row selected" : "song-row"}
+                onClick={() => setExpandedSongId((current) => (current === row.id ? "" : row.id))}
+              >
+                <span className="song-number">{index + 1}</span>
+                <button
+                  className="song-main"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setExpandedSongId((current) => (current === row.id ? "" : row.id));
+                  }}
+                >
+                  <span className="song-name">{row.title}</span>
+                </button>
+                <span className="song-meta">{row.sheets.length}</span>
+              </div>
+
+              {expandedSongId === row.id && (
+                <div className="score-inline-list">
+                  {isAdmin && row.id !== "common" && (
+                    <label className="split-bulk-upload-button score-upload-button">
+                      <UploadCloud size={16} />
+                      <span>악보 파일 추가</span>
+                      <input
+                        type="file"
+                        accept=".pdf,image/*"
+                        multiple
+                        onChange={(event) => {
+                          onUploadSheet?.(songs.find((song) => song.id === row.id), event.target.files);
+                          event.target.value = "";
+                        }}
+                      />
+                    </label>
+                  )}
+
+                  {row.sheets.length ? (
+                    row.sheets.map((score) => (
+                      <div className="score-row" key={score.path}>
+                        <a href={score.url} download>
+                          <span>{score.label}</span>
+                          <Download size={16} />
+                        </a>
+                        {isAdmin && (
+                          <button type="button" title="악보 삭제" onClick={() => onDeleteSheet?.(score)}>
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty-list compact-empty">등록된 악보가 없습니다.</div>
+                  )}
+                </div>
+              )}
             </div>
           ))
         ) : (
-          <div className="empty-list">등록된 악보가 없습니다.</div>
+          <div className="empty-list">곡 목록을 불러오고 있습니다.</div>
         )}
       </div>
     </section>
@@ -1467,6 +1551,7 @@ function AlbumPanel({
   albums,
   selectedAlbum,
   albumStatus,
+  isAdmin,
   onSelectAlbum,
   onAddAlbumFolder,
   onUploadAlbumPhotos,
@@ -1495,9 +1580,9 @@ function AlbumPanel({
           <h2>앨범</h2>
           <div className="section-actions">
             <span>{albumStatus}</span>
-            <button className="mini-file-button text-file-button" type="button" onClick={onAddAlbumFolder}>
+            {isAdmin && <button className="mini-file-button text-file-button" type="button" onClick={onAddAlbumFolder}>
               폴더 추가
-            </button>
+            </button>}
           </div>
         </div>
         <div className="song-list">
@@ -1525,8 +1610,8 @@ function AlbumPanel({
       <div className="panel album-panel">
         <div className="section-title">
           <h2>{selectedAlbum.title}</h2>
-          <div className="section-actions">
-            <label className="mini-file-button text-file-button">
+            <div className="section-actions">
+            {isAdmin && <label className="mini-file-button text-file-button">
               사진 추가
               <input
                 type="file"
@@ -1537,8 +1622,8 @@ function AlbumPanel({
                   event.target.value = "";
                 }}
               />
-            </label>
-            <button
+            </label>}
+            {isAdmin && <button
               className="mini-file-button"
               type="button"
               title="폴더 삭제"
@@ -1549,7 +1634,7 @@ function AlbumPanel({
               }}
             >
               <Trash2 size={15} />
-            </button>
+            </button>}
           </div>
         </div>
         {selectedAlbum.images.length ? (
@@ -1559,7 +1644,7 @@ function AlbumPanel({
                 <button type="button" onClick={() => setViewerIndex(index)}>
                   <img src={image.thumbnailUrl || image.url} alt={image.label} loading="lazy" />
                 </button>
-                <div className="photo-thumb-caption">
+                {isAdmin && <div className="photo-thumb-caption">
                   <span>{image.label}</span>
                   <button
                     type="button"
@@ -1571,7 +1656,7 @@ function AlbumPanel({
                   >
                     <Trash2 size={13} />
                   </button>
-                </div>
+                </div>}
               </div>
             ))}
           </div>
