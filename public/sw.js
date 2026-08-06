@@ -1,4 +1,4 @@
-const CACHE_NAME = "band-player-pwa-v1";
+const CACHE_NAME = "band-player-pwa-v2";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon.svg"];
 
 self.addEventListener("install", (event) => {

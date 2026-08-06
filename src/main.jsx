@@ -191,6 +191,10 @@ function App() {
   const [volume, setVolume] = useState(0.7);
   const [shuffle, setShuffle] = useState(false);
   const [abLoop, setAbLoop] = useState({ start: null, end: null });
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isStandaloneApp, setIsStandaloneApp] = useState(
+    () => window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true
+  );
   const [splitVolumes, setSplitVolumes] = useState(() =>
     Object.fromEntries(instruments.map((instrument) => [instrument.key, 0.7]))
   );
@@ -270,6 +274,31 @@ function App() {
     refreshSplitLibrary("");
     refreshSheetLibrary();
     refreshAlbumLibrary("");
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.("(display-mode: standalone)");
+    const handleDisplayModeChange = () => {
+      setIsStandaloneApp(mediaQuery?.matches || window.navigator.standalone === true);
+    };
+    const handleBeforeInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    const handleInstalled = () => {
+      setInstallPrompt(null);
+      setIsStandaloneApp(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleInstalled);
+    mediaQuery?.addEventListener?.("change", handleDisplayModeChange);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleInstalled);
+      mediaQuery?.removeEventListener?.("change", handleDisplayModeChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -794,6 +823,14 @@ function App() {
 
   const playerMode = currentPlayerMode();
   const playerSong = playerMode === "split" ? selectedSplitSong : selectedSong;
+  const canInstallApp = Boolean(installPrompt && !isStandaloneApp);
+
+  async function installApp() {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => null);
+    setInstallPrompt(null);
+  }
 
   return (
     <div className="app-shell">
@@ -802,9 +839,16 @@ function App() {
           <p className="eyebrow">Band Player</p>
           <h1>계단밑딴따라</h1>
         </div>
-        <button className="icon-button" title="설정">
-          <Gauge size={19} />
-        </button>
+        {canInstallApp ? (
+          <button className="install-app-button" type="button" onClick={installApp}>
+            <Download size={16} />
+            앱 설치
+          </button>
+        ) : (
+          <button className="icon-button" title="설정">
+            <Gauge size={19} />
+          </button>
+        )}
       </header>
 
       <nav className="tabbar" aria-label="주요 메뉴">
