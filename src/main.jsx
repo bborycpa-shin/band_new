@@ -22,6 +22,7 @@ import {
 import { supabase, supabaseConfig } from "./lib/supabase";
 import {
   loadFileManifest,
+  manifestFolder,
   moveDisplayName,
   removeDisplayName,
   setDisplayName,
@@ -334,14 +335,20 @@ function App() {
 
   async function reorderSongs(fromIndex, toIndex) {
     if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const previousSongs = appSongs;
     const reordered = [...appSongs];
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
     setAppSongs(reordered);
-    await setManifestOrder(
-      supabaseConfig.buckets.audio,
-      reordered.map((song) => song.audioPath).filter(Boolean)
-    );
+    try {
+      await setManifestOrder(
+        supabaseConfig.buckets.audio,
+        reordered.map((song) => song.audioPath).filter(Boolean)
+      );
+    } catch (error) {
+      setAppSongs(previousSongs);
+      window.alert(`순서 저장 실패: ${error.message}`);
+    }
   }
 
   async function uploadSplitTrack(song, instrumentKey, file) {
@@ -804,9 +811,10 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
     const nextFiles = [];
     for (const entry of data ?? []) {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (!prefix && entry.name === manifestFolder) continue;
       if (entry.id === null) {
         nextFiles.push(...(await listStorageFiles(path, manifest)));
-      } else {
+      } else if (path !== manifestPath) {
         nextFiles.push({
           name: entry.name,
           displayName: manifest[path]?.displayName || entry.name,

@@ -1,5 +1,5 @@
 import { instruments, sampleSongs } from "../data/songs";
-import { loadFileManifest, manifestPath } from "./fileManifest";
+import { loadFileManifest, manifestFolder, manifestPath } from "./fileManifest";
 import { supabase, supabaseConfig } from "./supabase";
 
 const audioExtensions = [".mp3", ".wav", ".m4a", ".ogg", ".flac"];
@@ -34,6 +34,7 @@ async function listAll(bucket, prefix = "") {
   const files = [];
   for (const entry of data ?? []) {
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (!prefix && entry.name === manifestFolder) continue;
     if (entry.id === null) {
       files.push(...(await listAll(bucket, path)));
     } else if (path !== manifestPath) {

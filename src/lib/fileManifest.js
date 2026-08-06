@@ -1,9 +1,36 @@
 import { supabase } from "./supabase";
 
 export const manifestPath = "_band-player-manifest.json";
+export const manifestFolder = "_band-player-manifests";
+
+async function loadManifestSnapshot(bucket) {
+  const { data, error } = await supabase.storage.from(bucket).list(manifestFolder, {
+    limit: 100,
+    sortBy: { column: "name", order: "desc" }
+  });
+
+  if (error || !data?.length) return null;
+
+  const latest = data.find((entry) => entry.name.endsWith(".json"));
+  if (!latest) return null;
+
+  const { data: file, error: downloadError } = await supabase.storage
+    .from(bucket)
+    .download(`${manifestFolder}/${latest.name}`);
+
+  if (downloadError || !file) return null;
+  return JSON.parse(await file.text());
+}
 
 export async function loadFileManifest(bucket) {
   if (!supabase || !bucket) return {};
+
+  try {
+    const snapshot = await loadManifestSnapshot(bucket);
+    if (snapshot) return snapshot;
+  } catch {
+    // Fall back to the legacy manifest below.
+  }
 
   const { data, error } = await supabase.storage.from(bucket).download(manifestPath);
   if (error || !data) return {};
@@ -18,15 +45,31 @@ export async function loadFileManifest(bucket) {
 export async function saveFileManifest(bucket, manifest) {
   if (!supabase || !bucket) return;
 
-  const file = new Blob([JSON.stringify(manifest, null, 2)], {
+  const nextManifest = {
+    ...manifest,
+    __savedAt: new Date().toISOString()
+  };
+  const file = new Blob([JSON.stringify(nextManifest, null, 2)], {
     type: "application/json"
   });
+  const snapshotPath = `${manifestFolder}/${Date.now()}-${crypto.randomUUID()}.json`;
 
-  await supabase.storage.from(bucket).upload(manifestPath, file, {
-    cacheControl: "60",
+  const { error } = await supabase.storage.from(bucket).upload(snapshotPath, file, {
+    cacheControl: "0",
     contentType: "application/json",
-    upsert: true
+    upsert: false
   });
+
+  if (error) throw error;
+
+  supabase.storage
+    .from(bucket)
+    .upload(manifestPath, file, {
+      cacheControl: "0",
+      contentType: "application/json",
+      upsert: true
+    })
+    .catch(() => {});
 }
 
 export async function setDisplayName(bucket, path, displayName) {
@@ -57,6 +100,6 @@ export async function removeDisplayName(bucket, path) {
 
 export async function setManifestOrder(bucket, paths) {
   const manifest = await loadFileManifest(bucket);
-  manifest.__order = paths;
+  manifest.__order = [...new Set(paths.filter(Boolean))];
   await saveFileManifest(bucket, manifest);
 }
