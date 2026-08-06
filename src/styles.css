@@ -308,6 +308,12 @@ h1 {
   background: #dc2626;
 }
 
+.admin-mode .recorder-icon-button:disabled {
+  color: #c7a0a0;
+  background: #fff1f2;
+  cursor: not-allowed;
+}
+
 .content {
   display: grid;
   gap: 12px;
@@ -1065,6 +1071,13 @@ input[type="range"] {
   font-weight: 900;
 }
 
+.transport button:first-child,
+.transport button:last-child {
+  justify-self: center;
+  width: 34px;
+  padding: 0;
+}
+
 .transport .play-button {
   width: 58px;
   height: 58px;
@@ -1317,7 +1330,7 @@ input[type="range"] {
   }
 
   .transport {
-    grid-template-columns: 26px repeat(3, minmax(28px, 1fr)) 50px repeat(3, minmax(28px, 1fr)) 26px;
+    grid-template-columns: 32px repeat(3, minmax(28px, 1fr)) 50px repeat(3, minmax(28px, 1fr)) 32px;
     gap: 2px;
   }
 

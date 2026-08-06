@@ -54,6 +54,7 @@ const tabs = [
 ];
 
 const rates = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
+const adminPasswordHashKey = "band-admin-password-hash";
 const keyShifts = [
   { value: -1, label: "-반키" },
   { value: 0, label: "원음" },
@@ -79,6 +80,14 @@ function applyPlaybackSettings(audio, rate, keyShift) {
   audio.preservesPitch = preservePitch;
   audio.mozPreservesPitch = preservePitch;
   audio.webkitPreservesPitch = preservePitch;
+}
+
+async function hashText(value) {
+  const data = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function safeName(value) {
@@ -946,6 +955,31 @@ function App() {
     setInstallPrompt(null);
   }
 
+  async function toggleAdminMode() {
+    if (isAdminMode) {
+      setIsAdminMode(false);
+      return;
+    }
+
+    const savedHash = localStorage.getItem(adminPasswordHashKey);
+    if (!savedHash) {
+      const newPassword = window.prompt("\uad00\ub9ac\uc790 \ube44\ubc00\ubc88\ud638\ub97c \ucc98\uc74c \uc124\uc815\ud558\uc138\uc694.");
+      if (!newPassword) return;
+      localStorage.setItem(adminPasswordHashKey, await hashText(newPassword));
+      setIsAdminMode(true);
+      return;
+    }
+
+    const password = window.prompt("\uad00\ub9ac\uc790 \ube44\ubc00\ubc88\ud638\ub97c \uc785\ub825\ud558\uc138\uc694.");
+    if (password === null) return;
+    if ((await hashText(password)) === savedHash) {
+      setIsAdminMode(true);
+      return;
+    }
+
+    window.alert("\ube44\ubc00\ubc88\ud638\uac00 \ud2c0\ub838\uc2b5\ub2c8\ub2e4.");
+  }
+
   return (
     <div className={isAdminMode ? "app-shell admin-mode" : "app-shell"}>
       <header className="topbar">
@@ -958,7 +992,7 @@ function App() {
             className={isAdminMode ? "lock-button active" : "lock-button"}
             type="button"
             title={isAdminMode ? "관리자모드 종료" : "관리자모드 진입"}
-            onClick={() => setIsAdminMode((current) => !current)}
+            onClick={toggleAdminMode}
           >
             {isAdminMode ? <Unlock size={18} /> : <Lock size={18} />}
           </button>
@@ -1704,13 +1738,14 @@ function SplitPanel({
         onSelect={selectOrToggleSong}
         mode="split"
         renderSongAction={(song) => (
-          <div className="split-row-actions" onClick={(event) => event.stopPropagation()}>
+          <div className="split-row-actions">
             <button
               className="split-row-play-button"
               type="button"
               title="분할 전체 재생"
               disabled={!song.partsReady}
-              onClick={() => {
+              onClick={(event) => {
+                event.stopPropagation();
                 onSelect(song);
                 setExpandedSongId(song.id);
                 onPlaySplitSong?.(song);
@@ -1723,7 +1758,10 @@ function SplitPanel({
               type="button"
               title="분할곡 삭제"
               disabled={song.id === "split-empty"}
-              onClick={() => onDeleteSplitSong?.(song)}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDeleteSplitSong?.(song);
+              }}
             >
               <Trash2 size={14} />
             </button>}
