@@ -183,8 +183,20 @@ h1 {
 }
 
 .song-row.selected {
-  border-color: #938af5;
-  background: #f2f0ff;
+  border-color: #93c5fd;
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.song-row:focus,
+.song-row:focus-visible,
+.song-main:focus,
+.song-main:focus-visible,
+.song-actions button:focus,
+.song-actions button:focus-visible,
+.mini-file-button:focus,
+.mini-file-button:focus-visible {
+  outline: none;
 }
 
 .drag-handle {

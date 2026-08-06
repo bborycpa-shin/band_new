@@ -168,11 +168,6 @@ function App() {
   }
 
   function switchTab(nextTab) {
-    if ((activeTab === "play" && nextTab === "split") || (activeTab === "split" && nextTab === "play")) {
-      pauseMainAudio();
-      pauseSplitTracks();
-      setIsPlaying(false);
-    }
     setActiveTab(nextTab);
   }
 
@@ -516,6 +511,7 @@ function SongList({
             className={selectedSong.id === song.id ? "song-row selected" : "song-row"}
             draggable={editable}
             onDragStart={() => editable && setDragIndex(index)}
+            onDragEnd={() => setDragIndex(null)}
             onDragOver={(event) => editable && event.preventDefault()}
             onDrop={() => {
               if (editable && dragIndex !== null) onReorderSongs?.(dragIndex, index);
