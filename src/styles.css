@@ -206,6 +206,17 @@ h1 {
   text-overflow: ellipsis;
 }
 
+.empty-list {
+  display: grid;
+  place-items: center;
+  min-height: 120px;
+  color: #738096;
+  background: #f8fafd;
+  border: 1px dashed #cbd7e8;
+  border-radius: 8px;
+  font-weight: 900;
+}
+
 .split-layout {
   display: grid;
   grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr);

@@ -60,6 +60,17 @@ function safeName(value) {
   return cleaned || "file";
 }
 
+const emptySong = {
+  id: "empty",
+  title: "곡을 불러오는 중입니다",
+  artist: "",
+  audioUrl: "",
+  splitTracks: Object.fromEntries(instruments.map((instrument) => [instrument.key, ""])),
+  scores: [],
+  album: { images: [], youtubeId: "" },
+  partsReady: 0
+};
+
 function safeFileName(file) {
   const extension = file.name.includes(".") ? `.${file.name.split(".").pop().toLowerCase()}` : "";
   const baseName = file.name.replace(/\.[^.]+$/, "");
@@ -69,9 +80,9 @@ function safeFileName(file) {
 
 function App() {
   const [activeTab, setActiveTab] = useState("play");
-  const [appSongs, setAppSongs] = useState(sampleSongs);
-  const [libraryStatus, setLibraryStatus] = useState("샘플 목록");
-  const [selectedId, setSelectedId] = useState(sampleSongs[0].id);
+  const [appSongs, setAppSongs] = useState([]);
+  const [libraryStatus, setLibraryStatus] = useState("불러오는 중");
+  const [selectedId, setSelectedId] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -86,7 +97,7 @@ function App() {
   const splitRefs = useRef({});
 
   const selectedSong = useMemo(
-    () => appSongs.find((song) => song.id === selectedId) ?? appSongs[0],
+    () => appSongs.find((song) => song.id === selectedId) ?? appSongs[0] ?? emptySong,
     [appSongs, selectedId]
   );
 
@@ -106,7 +117,7 @@ function App() {
   }
 
   useEffect(() => {
-    refreshLibrary(sampleSongs[0].id);
+    refreshLibrary("");
   }, []);
 
   useEffect(() => {
@@ -336,6 +347,10 @@ function PlayList({ songs, selectedSong, onSelect, libraryStatus }) {
 }
 
 function SongList({ songs, selectedSong, onSelect, mode }) {
+  if (!songs.length) {
+    return <div className="empty-list">곡 목록을 불러오고 있습니다.</div>;
+  }
+
   return (
     <div className="song-list">
       {songs.map((song, index) => (
