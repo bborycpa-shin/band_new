@@ -1002,7 +1002,31 @@ input[type="range"] {
 }
 
 .volume-row input {
-  max-width: 260px;
+  max-width: 150px;
+}
+
+.key-control {
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(44px, auto));
+  gap: 4px;
+}
+
+.key-button {
+  min-height: 28px;
+  border: 1px solid #dde6f3;
+  border-radius: 8px;
+  padding: 0 8px;
+  color: #526079;
+  background: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.key-button.active {
+  color: #ffffff;
+  background: var(--player-main, #5947e8);
+  border-color: var(--player-main, #5947e8);
 }
 
 .mini-toggle {
@@ -1264,9 +1288,9 @@ input[type="range"] {
   }
 
   .volume-row input {
-    flex: 0 1 116px;
-    width: 116px;
-    max-width: 116px;
+    flex: 0 1 70px;
+    width: 70px;
+    max-width: 70px;
   }
 
   .volume-row span {
@@ -1279,6 +1303,17 @@ input[type="range"] {
     min-height: 26px;
     padding: 0 7px;
     font-size: 0.72rem;
+  }
+
+  .key-control {
+    grid-template-columns: repeat(3, minmax(36px, auto));
+    gap: 3px;
+  }
+
+  .key-button {
+    min-height: 26px;
+    padding: 0 5px;
+    font-size: 0.66rem;
   }
 
   .transport {

@@ -12,7 +12,6 @@ import {
   Play,
   Repeat,
   Save,
-  Shuffle,
   SkipBack,
   SkipForward,
   SlidersHorizontal,
@@ -55,6 +54,11 @@ const tabs = [
 ];
 
 const rates = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
+const keyShifts = [
+  { value: -1, label: "-반키" },
+  { value: 0, label: "원음" },
+  { value: 1, label: "+반키" }
+];
 
 function formatTime(seconds) {
   if (!Number.isFinite(seconds)) return "0:00";
@@ -65,6 +69,16 @@ function formatTime(seconds) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function applyPlaybackSettings(audio, rate, keyShift) {
+  if (!audio) return;
+  const keyFactor = 2 ** (keyShift / 12);
+  audio.playbackRate = rate * keyFactor;
+  const preservePitch = keyShift === 0;
+  audio.preservesPitch = preservePitch;
+  audio.mozPreservesPitch = preservePitch;
+  audio.webkitPreservesPitch = preservePitch;
 }
 
 function safeName(value) {
@@ -196,8 +210,8 @@ function App() {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [rate, setRate] = useState(1);
+  const [keyShift, setKeyShift] = useState(0);
   const [volume, setVolume] = useState(0.7);
-  const [shuffle, setShuffle] = useState(false);
   const [abLoop, setAbLoop] = useState({ start: null, end: null });
   const [installPrompt, setInstallPrompt] = useState(null);
   const [isStandaloneApp, setIsStandaloneApp] = useState(
@@ -315,18 +329,18 @@ function App() {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    audio.playbackRate = rate;
+    applyPlaybackSettings(audio, rate, keyShift);
     audio.volume = volume;
-  }, [rate, volume]);
+  }, [rate, keyShift, volume]);
 
   useEffect(() => {
     instruments.forEach((instrument) => {
       const audio = splitRefs.current[instrument.key];
       if (!audio) return;
-      audio.playbackRate = rate;
+      applyPlaybackSettings(audio, rate, keyShift);
       audio.volume = splitMuted[instrument.key] ? 0 : splitVolumes[instrument.key];
     });
-  }, [rate, splitVolumes, splitMuted, selectedSplitSong]);
+  }, [rate, keyShift, splitVolumes, splitMuted, selectedSplitSong]);
 
   useEffect(() => {
     setIsPlaying(false);
@@ -362,12 +376,12 @@ function App() {
     setPlaybackMode("split");
     activeAudios.forEach((audio) => {
       audio.currentTime = 0;
-      audio.playbackRate = rate;
+      applyPlaybackSettings(audio, rate, keyShift);
       audio.volume = splitMuted[audio.dataset.instrument] ? 0 : splitVolumes[audio.dataset.instrument] ?? 0.7;
     });
     Promise.allSettled(activeAudios.map((audio) => audio.play())).then(() => setIsPlaying(true));
     setPendingSplitPlayId("");
-  }, [pendingSplitPlayId, selectedSplitSong, rate, splitVolumes, splitMuted]);
+  }, [pendingSplitPlayId, selectedSplitSong, rate, keyShift, splitVolumes, splitMuted]);
 
   function selectSong(song) {
     setSelectedId(song.id);
@@ -442,7 +456,7 @@ function App() {
     setPlaybackMode("split");
     activeAudios.forEach((audio) => {
       audio.currentTime = currentTime;
-      audio.playbackRate = rate;
+      applyPlaybackSettings(audio, rate, keyShift);
       audio.volume = splitMuted[audio.dataset.instrument] ? 0 : splitVolumes[audio.dataset.instrument] ?? 0.7;
     });
     await Promise.allSettled(activeAudios.map((audio) => audio.play()));
@@ -463,7 +477,7 @@ function App() {
         if (!audio || !src) return null;
         audio.src = src;
         audio.currentTime = 0;
-        audio.playbackRate = rate;
+        applyPlaybackSettings(audio, rate, keyShift);
         audio.volume = splitMuted[instrument.key] ? 0 : splitVolumes[instrument.key] ?? 0.7;
         return audio;
       })
@@ -508,12 +522,6 @@ function App() {
       const currentIndex = splitSongs.findIndex((song) => song.id === selectedSplitSong.id);
       const nextIndex = (currentIndex + offset + splitSongs.length) % splitSongs.length;
       setSelectedSplitId(splitSongs[nextIndex].id);
-      return;
-    }
-
-    if (shuffle && offset > 0 && appSongs.length > 1) {
-      const candidates = appSongs.filter((song) => song.id !== selectedSong.id);
-      setSelectedId(candidates[Math.floor(Math.random() * candidates.length)].id);
       return;
     }
 
@@ -1064,10 +1072,10 @@ function App() {
         handleTrackedTime={handleTrackedTime}
         rate={rate}
         setRate={setRate}
+        keyShift={keyShift}
+        setKeyShift={setKeyShift}
         volume={volume}
         setVolume={setVolume}
-        shuffle={shuffle}
-        setShuffle={setShuffle}
         abLoop={abLoop}
         markAbLoop={markAbLoop}
         togglePlay={togglePlay}
@@ -1999,10 +2007,10 @@ function PlayerBar({
   handleTrackedTime,
   rate,
   setRate,
+  keyShift,
+  setKeyShift,
   volume,
   setVolume,
-  shuffle,
-  setShuffle,
   abLoop,
   markAbLoop,
   togglePlay,
@@ -2064,14 +2072,18 @@ function PlayerBar({
           onChange={(event) => setVolume(Number(event.target.value))}
         />
         <span>{Math.round(volume * 100)}%</span>
-        <button
-          className={shuffle ? "mini-toggle active" : "mini-toggle"}
-          onClick={() => setShuffle((current) => !current)}
-          title="셔플"
-        >
-          <Shuffle size={14} />
-          셔플
-        </button>
+        <div className="key-control" aria-label="Key control">
+          {keyShifts.map((item) => (
+            <button
+              key={item.value}
+              className={keyShift === item.value ? "key-button active" : "key-button"}
+              type="button"
+              onClick={() => setKeyShift(item.value)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
         <button
           className={abLoop.start !== null ? "mini-toggle active" : "mini-toggle"}
           onClick={markAbLoop}
