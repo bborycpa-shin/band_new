@@ -15,6 +15,8 @@ import {
   SkipForward,
   SlidersHorizontal,
   Trash2,
+  ArrowDown,
+  ArrowUp,
   UploadCloud,
   Users,
   Volume2
@@ -513,7 +515,6 @@ function SongList({
 }) {
   const [editingId, setEditingId] = useState("");
   const [editingName, setEditingName] = useState("");
-  const [dragIndex, setDragIndex] = useState(null);
 
   if (!songs.length) {
     return <div className="empty-list">곡 목록을 불러오고 있습니다.</div>;
@@ -526,17 +527,14 @@ function SongList({
         return (
           <div
             key={song.id}
-            className={selectedSong.id === song.id ? "song-row selected" : "song-row"}
-            draggable={editable}
-            onDragStart={() => editable && setDragIndex(index)}
-            onDragEnd={() => setDragIndex(null)}
-            onDragOver={(event) => editable && event.preventDefault()}
-            onDrop={() => {
-              if (editable && dragIndex !== null) onReorderSongs?.(dragIndex, index);
-              setDragIndex(null);
-            }}
+            className={[
+              "song-row",
+              selectedSong.id === song.id ? "selected" : "",
+              editable ? "editable" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
           >
-            <span className="drag-handle">::</span>
             <span className="song-number">{index + 1}</span>
             <button className="song-main" type="button" onClick={() => onSelect(song)}>
               {isEditing ? (
@@ -551,6 +549,26 @@ function SongList({
               )}
             </button>
             <span className="song-meta">{mode === "split" ? `${song.partsReady}/6` : song.scores.length}</span>
+            {editable && (
+              <div className="song-order-actions">
+                <button
+                  type="button"
+                  title="위로 이동"
+                  disabled={index === 0}
+                  onClick={() => onReorderSongs?.(index, index - 1)}
+                >
+                  <ArrowUp size={14} />
+                </button>
+                <button
+                  type="button"
+                  title="아래로 이동"
+                  disabled={index === songs.length - 1}
+                  onClick={() => onReorderSongs?.(index, index + 1)}
+                >
+                  <ArrowDown size={14} />
+                </button>
+              </div>
+            )}
             {editable && (
               <div className="song-actions">
                 {isEditing ? (

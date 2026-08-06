@@ -156,8 +156,8 @@ h1 {
 
 .song-list {
   display: grid;
-  gap: 7px;
-  max-height: calc(100vh - 278px);
+  gap: 4px;
+  max-height: calc(100vh - 250px);
   overflow: auto;
   padding-right: 2px;
 }
@@ -166,20 +166,24 @@ h1 {
 .score-row {
   display: grid;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  min-height: 36px;
+  min-height: 30px;
   color: #182033;
   background: #f8fafd;
   border: 1px solid #edf1f7;
-  border-radius: 7px;
+  border-radius: 6px;
   text-align: left;
   text-decoration: none;
 }
 
 .song-row {
-  grid-template-columns: 18px 28px minmax(0, 1fr) auto auto;
-  padding: 7px 9px;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  padding: 4px 7px;
+}
+
+.song-row.editable {
+  grid-template-columns: 26px minmax(0, 1fr) 28px auto auto;
 }
 
 .song-row.selected {
@@ -194,31 +198,28 @@ h1 {
 .song-main:focus-visible,
 .song-actions button:focus,
 .song-actions button:focus-visible,
+.song-order-actions button:focus,
+.song-order-actions button:focus-visible,
 .mini-file-button:focus,
 .mini-file-button:focus-visible {
   outline: none;
 }
 
-.drag-handle {
-  color: #c1cada;
-  font-weight: 900;
-  transform: rotate(90deg);
-}
-
 .song-number {
   display: grid;
   place-items: center;
-  min-width: 24px;
-  height: 20px;
-  border-radius: 6px;
+  min-width: 22px;
+  height: 18px;
+  border-radius: 5px;
   color: #7a88a0;
   background: #edf2fa;
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   font-weight: 900;
 }
 
 .song-name {
   overflow: hidden;
+  font-size: 0.84rem;
   font-weight: 900;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -234,34 +235,43 @@ h1 {
 
 .song-inline-input {
   width: 100%;
-  min-height: 28px;
+  min-height: 24px;
   border: 1px solid #b8c6dc;
-  border-radius: 7px;
-  padding: 0 8px;
+  border-radius: 6px;
+  padding: 0 7px;
   color: #182033;
   background: #ffffff;
+  font-size: 0.82rem;
   font-weight: 900;
 }
 
+.song-order-actions,
 .song-actions {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
 }
 
+.song-order-actions button,
 .song-actions button,
 .mini-file-button,
 .track-upload-button {
   display: inline-grid;
   place-items: center;
-  min-width: 32px;
-  min-height: 30px;
+  min-width: 28px;
+  min-height: 26px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   color: #33405b;
   background: #edf2fa;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 900;
+}
+
+.song-order-actions button:disabled {
+  color: #b9c4d5;
+  background: #f3f6fb;
+  cursor: not-allowed;
 }
 
 .mini-file-button input,
