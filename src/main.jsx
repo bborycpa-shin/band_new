@@ -175,9 +175,11 @@ function App() {
   const [appSongs, setAppSongs] = useState([]);
   const [libraryStatus, setLibraryStatus] = useState("불러오는 중");
   const [selectedId, setSelectedId] = useState("");
+  const [pendingPlayId, setPendingPlayId] = useState("");
   const [splitSongs, setSplitSongs] = useState([]);
   const [splitLibraryStatus, setSplitLibraryStatus] = useState("불러오는 중");
   const [selectedSplitId, setSelectedSplitId] = useState("");
+  const [pendingSplitPlayId, setPendingSplitPlayId] = useState("");
   const [sheetFiles, setSheetFiles] = useState([]);
   const [sheetStatus, setSheetStatus] = useState("불러오는 중");
   const [albumFolders, setAlbumFolders] = useState([]);
@@ -324,8 +326,50 @@ function App() {
     setAbLoop({ start: null, end: null });
   }, [selectedId, selectedSplitId]);
 
+  useEffect(() => {
+    if (!pendingPlayId || pendingPlayId !== selectedSong.id || !selectedSong.audioUrl) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    pauseSplitTracks();
+    setPlaybackMode("play");
+    audio.currentTime = 0;
+    audio.play().then(() => setIsPlaying(true)).catch(() => {});
+    setPendingPlayId("");
+  }, [pendingPlayId, selectedSong]);
+
+  useEffect(() => {
+    if (!pendingSplitPlayId || pendingSplitPlayId !== selectedSplitSong.id) return;
+    const activeAudios = instruments
+      .map((instrument) => splitRefs.current[instrument.key])
+      .filter((audio) => audio?.currentSrc || audio?.src);
+
+    if (!activeAudios.length) {
+      setPendingSplitPlayId("");
+      return;
+    }
+
+    pauseMainAudio();
+    setPlaybackMode("split");
+    activeAudios.forEach((audio) => {
+      audio.currentTime = 0;
+      audio.playbackRate = rate;
+      audio.volume = splitVolumes[audio.dataset.instrument] ?? 0.7;
+    });
+    Promise.allSettled(activeAudios.map((audio) => audio.play())).then(() => setIsPlaying(true));
+    setPendingSplitPlayId("");
+  }, [pendingSplitPlayId, selectedSplitSong, rate, splitVolumes]);
+
   function selectSong(song) {
     setSelectedId(song.id);
+    setPendingPlayId(song.id);
+    if (song.audioUrl && audioRef.current) {
+      pauseSplitTracks();
+      setPlaybackMode("play");
+      audioRef.current.src = song.audioUrl;
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+    }
   }
 
   function selectSplitSong(song) {
@@ -394,6 +438,30 @@ function App() {
     });
     await Promise.allSettled(activeAudios.map((audio) => audio.play()));
     setIsPlaying(true);
+  }
+
+  async function playSplitSong(song) {
+    setSelectedSplitId(song.id);
+    setPendingSplitPlayId(song.id);
+    setCurrentTime(0);
+    setPlaybackMode("split");
+    pauseMainAudio();
+
+    const activeAudios = instruments
+      .map((instrument) => {
+        const audio = splitRefs.current[instrument.key];
+        const src = song.splitTracks?.[instrument.key];
+        if (!audio || !src) return null;
+        audio.src = src;
+        audio.currentTime = 0;
+        audio.playbackRate = rate;
+        audio.volume = splitVolumes[instrument.key] ?? 0.7;
+        return audio;
+      })
+      .filter(Boolean);
+
+    await Promise.allSettled(activeAudios.map((audio) => audio.play()));
+    setIsPlaying(Boolean(activeAudios.length));
   }
 
   function seekBy(seconds) {
@@ -894,6 +962,7 @@ function App() {
             setDuration={setDuration}
             setIsPlaying={setIsPlaying}
             onAddSplitSong={addSplitSong}
+            onPlaySplitSong={playSplitSong}
             onUploadSplitTrack={uploadSplitTrack}
             onUploadSplitTracks={uploadSplitTracks}
             onDeleteSplitTrack={deleteSplitTrack}
@@ -1022,7 +1091,9 @@ function SongList({
   editable = false,
   onUploadSong,
   onRenameSong,
-  onDeleteSong
+  onDeleteSong,
+  renderSongAction,
+  renderAfterSong
 }) {
   const [editingId, setEditingId] = useState("");
   const [editingName, setEditingName] = useState("");
@@ -1036,88 +1107,92 @@ function SongList({
       {songs.map((song, index) => {
         const isEditing = editingId === song.id;
         return (
-          <div
-            key={song.id}
-            className={[
-              "song-row",
-              selectedSong.id === song.id ? "selected" : "",
-              editable ? "editable" : ""
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() => onSelect(song)}
-          >
-            <span className="song-number">{index + 1}</span>
-            <button
-              className="song-main"
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onSelect(song);
-              }}
+          <React.Fragment key={song.id}>
+            <div
+              className={[
+                "song-row",
+                selectedSong.id === song.id ? "selected" : "",
+                editable ? "editable" : "",
+                renderSongAction ? "with-action" : ""
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={() => onSelect(song)}
             >
-              {isEditing ? (
-                <input
-                  className="song-inline-input"
-                  value={editingName}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => setEditingName(event.target.value)}
-                />
-              ) : (
-                <span className="song-name">{song.title}</span>
-              )}
-            </button>
-            {showMeta && (
-              <span className="song-meta">{mode === "split" ? `${song.partsReady}/6` : song.scores.length}</span>
-            )}
-            {editable && (
-              <div className="song-actions" onClick={(event) => event.stopPropagation()}>
+              <span className="song-number">{index + 1}</span>
+              <button
+                className="song-main"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelect(song);
+                }}
+              >
                 {isEditing ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onRenameSong?.(song, editingName);
-                        setEditingId("");
-                      }}
-                    >
-                      저장
-                    </button>
-                    <button type="button" onClick={() => setEditingId("")}>
-                      취소
-                    </button>
-                  </>
+                  <input
+                    className="song-inline-input"
+                    value={editingName}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => setEditingName(event.target.value)}
+                  />
                 ) : (
-                  <>
-                    <label className="mini-file-button" title="음원 업로드">
-                      <UploadCloud size={15} />
-                      <input
-                        type="file"
-                        accept="audio/*"
-                        onChange={(event) => {
-                          onUploadSong?.(song, event.target.files?.[0]);
-                          event.target.value = "";
-                        }}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      title="이름 변경"
-                      onClick={() => {
-                        setEditingId(song.id);
-                        setEditingName(song.title);
-                      }}
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button type="button" title="삭제" onClick={() => onDeleteSong?.(song)}>
-                      <Trash2 size={15} />
-                    </button>
-                  </>
+                  <span className="song-name">{song.title}</span>
                 )}
-              </div>
-            )}
-          </div>
+              </button>
+              {showMeta && (
+                <span className="song-meta">{mode === "split" ? `${song.partsReady}/6` : song.scores.length}</span>
+              )}
+              {renderSongAction?.(song)}
+              {editable && (
+                <div className="song-actions" onClick={(event) => event.stopPropagation()}>
+                  {isEditing ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onRenameSong?.(song, editingName);
+                          setEditingId("");
+                        }}
+                      >
+                        저장
+                      </button>
+                      <button type="button" onClick={() => setEditingId("")}>
+                        취소
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <label className="mini-file-button" title="음원 업로드">
+                        <UploadCloud size={15} />
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          onChange={(event) => {
+                            onUploadSong?.(song, event.target.files?.[0]);
+                            event.target.value = "";
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        title="이름 변경"
+                        onClick={() => {
+                          setEditingId(song.id);
+                          setEditingName(song.title);
+                        }}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button type="button" title="삭제" onClick={() => onDeleteSong?.(song)}>
+                        <Trash2 size={15} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            {renderAfterSong?.(song)}
+          </React.Fragment>
         );
       })}
     </div>
@@ -1137,32 +1212,16 @@ function SplitPanel({
   setDuration,
   setIsPlaying,
   onAddSplitSong,
+  onPlaySplitSong,
   onUploadSplitTrack,
   onUploadSplitTracks,
   onDeleteSplitTrack
 }) {
-  return (
-    <section className="split-layout">
-      <div className="panel compact">
-        <div className="section-title">
-          <h2>분할 재생</h2>
-          <div className="section-actions">
-            <span>{libraryStatus}</span>
-            <button className="mini-file-button text-file-button" type="button" onClick={onAddSplitSong}>
-              분할곡 추가
-            </button>
-          </div>
-        </div>
-        <SongList songs={songs} selectedSong={selectedSong} onSelect={onSelect} mode="split" />
-      </div>
+  function renderSplitControls(song) {
+    if (song.id !== selectedSong.id) return null;
 
-      <div className="panel">
-        <div className="detail-head">
-          <Music2 size={18} />
-          <strong>{selectedSong.title}</strong>
-          <span>{selectedSong.partsReady}/6</span>
-        </div>
-
+    return (
+      <div className="split-inline-controls">
         <label className="split-bulk-upload-button" title="6개 분할 파일 일괄 업로드">
           <UploadCloud size={16} />
           <span>6개 파일 일괄 업로드</span>
@@ -1171,7 +1230,7 @@ function SplitPanel({
             accept="audio/*"
             multiple
             onChange={(event) => {
-              onUploadSplitTracks?.(selectedSong, event.target.files);
+              onUploadSplitTracks?.(song, event.target.files);
               event.target.value = "";
             }}
           />
@@ -1201,7 +1260,7 @@ function SplitPanel({
                   type="file"
                   accept="audio/*"
                   onChange={(event) => {
-                    onUploadSplitTrack?.(selectedSong, instrument.key, event.target.files?.[0]);
+                    onUploadSplitTrack?.(song, instrument.key, event.target.files?.[0]);
                     event.target.value = "";
                   }}
                 />
@@ -1210,18 +1269,18 @@ function SplitPanel({
                 className="track-delete-button"
                 type="button"
                 title={`${instrument.label} 파일 삭제`}
-                disabled={!selectedSong.splitTrackPaths?.[instrument.key]}
-                onClick={() => onDeleteSplitTrack?.(selectedSong, instrument.key)}
+                disabled={!song.splitTrackPaths?.[instrument.key]}
+                onClick={() => onDeleteSplitTrack?.(song, instrument.key)}
               >
                 <Trash2 size={15} />
               </button>
               <audio
-                key={selectedSong.splitTrackPaths?.[instrument.key] || `${selectedSong.id}-${instrument.key}`}
+                key={song.splitTrackPaths?.[instrument.key] || `${song.id}-${instrument.key}`}
                 data-instrument={instrument.key}
                 ref={(node) => {
                   if (node) splitRefs.current[instrument.key] = node;
                 }}
-                src={selectedSong.splitTracks[instrument.key]}
+                src={song.splitTracks[instrument.key]}
                 preload="metadata"
                 onLoadedMetadata={(event) => {
                   if (instrument.key === "vocal") setDuration(event.currentTarget.duration);
@@ -1244,6 +1303,41 @@ function SplitPanel({
           ))}
         </div>
       </div>
+    );
+  }
+
+  return (
+    <section className="panel split-panel">
+      <div className="section-title">
+        <h2>분할 재생</h2>
+        <div className="section-actions">
+          <span>{libraryStatus}</span>
+          <button className="mini-file-button text-file-button" type="button" onClick={onAddSplitSong}>
+            분할곡 추가
+          </button>
+        </div>
+      </div>
+      <SongList
+        songs={songs}
+        selectedSong={selectedSong}
+        onSelect={onSelect}
+        mode="split"
+        renderSongAction={(song) => (
+          <button
+            className="split-row-play-button"
+            type="button"
+            title="분할 전체 재생"
+            disabled={!song.partsReady}
+            onClick={(event) => {
+              event.stopPropagation();
+              onPlaySplitSong?.(song);
+            }}
+          >
+            <Play size={14} fill="currentColor" />
+          </button>
+        )}
+        renderAfterSong={renderSplitControls}
+      />
     </section>
   );
 }
