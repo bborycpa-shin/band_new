@@ -748,6 +748,34 @@ function App() {
     await refreshSplitLibrary(song.id);
   }
 
+  async function deleteSplitSong(song) {
+    if (!supabase || !song?.id || song.id === "split-empty") return;
+    const ok = window.confirm(`${song.title} 분할곡과 등록된 악기 파일을 모두 삭제할까요?`);
+    if (!ok) return;
+
+    pauseSplitTracks();
+    setIsPlaying(false);
+
+    const bucket = supabaseConfig.buckets.split;
+    const paths = Object.values(song.splitTrackPaths ?? {}).filter(Boolean);
+    if (paths.length) {
+      const { error } = await supabase.storage.from(bucket).remove(paths);
+      if (error) {
+        window.alert(`분할곡 삭제 실패: ${error.message}`);
+        return;
+      }
+    }
+
+    const manifest = await loadFileManifest(bucket);
+    delete manifest.__splitSongs?.[song.id];
+    manifest.__splitOrder = (manifest.__splitOrder ?? []).filter((item) => item !== song.id);
+    paths.forEach((path) => {
+      delete manifest[path];
+    });
+    await saveFileManifest(bucket, manifest);
+    await refreshSplitLibrary("");
+  }
+
   async function uploadSheetFile(file) {
     const files = Array.from(file instanceof FileList ? file : file ? [file] : []);
     if (!supabase || !files.length) return;
@@ -966,6 +994,7 @@ function App() {
             onUploadSplitTrack={uploadSplitTrack}
             onUploadSplitTracks={uploadSplitTracks}
             onDeleteSplitTrack={deleteSplitTrack}
+            onDeleteSplitSong={deleteSplitSong}
           />
         </div>
         {activeTab === "score" && (
@@ -1215,7 +1244,8 @@ function SplitPanel({
   onPlaySplitSong,
   onUploadSplitTrack,
   onUploadSplitTracks,
-  onDeleteSplitTrack
+  onDeleteSplitTrack,
+  onDeleteSplitSong
 }) {
   function renderSplitControls(song) {
     if (song.id !== selectedSong.id) return null;
@@ -1323,18 +1353,26 @@ function SplitPanel({
         onSelect={onSelect}
         mode="split"
         renderSongAction={(song) => (
-          <button
-            className="split-row-play-button"
-            type="button"
-            title="분할 전체 재생"
-            disabled={!song.partsReady}
-            onClick={(event) => {
-              event.stopPropagation();
-              onPlaySplitSong?.(song);
-            }}
-          >
-            <Play size={14} fill="currentColor" />
-          </button>
+          <div className="split-row-actions" onClick={(event) => event.stopPropagation()}>
+            <button
+              className="split-row-play-button"
+              type="button"
+              title="분할 전체 재생"
+              disabled={!song.partsReady}
+              onClick={() => onPlaySplitSong?.(song)}
+            >
+              <Play size={14} fill="currentColor" />
+            </button>
+            <button
+              className="split-row-delete-button"
+              type="button"
+              title="분할곡 삭제"
+              disabled={song.id === "split-empty"}
+              onClick={() => onDeleteSplitSong?.(song)}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
         )}
         renderAfterSong={renderSplitControls}
       />

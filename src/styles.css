@@ -211,7 +211,7 @@ h1 {
 }
 
 .song-row.with-action {
-  grid-template-columns: 26px minmax(0, 1fr) auto 30px;
+  grid-template-columns: 26px minmax(0, 1fr) auto 61px;
 }
 
 .song-row.selected {
@@ -390,7 +390,15 @@ h1 {
   background: #f0fdf8;
 }
 
-.split-row-play-button {
+.split-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+.split-row-play-button,
+.split-row-delete-button {
   display: grid;
   place-items: center;
   width: 28px;
@@ -401,7 +409,13 @@ h1 {
   background: #059669;
 }
 
-.split-row-play-button:disabled {
+.split-row-delete-button {
+  color: #33405b;
+  background: #edf2fa;
+}
+
+.split-row-play-button:disabled,
+.split-row-delete-button:disabled {
   color: #9fb0c7;
   background: #edf2fa;
   cursor: not-allowed;
