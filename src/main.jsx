@@ -20,6 +20,7 @@ import {
   Volume2
 } from "lucide-react";
 import { supabase, supabaseConfig } from "./lib/supabase";
+import { loadFileManifest, moveDisplayName, removeDisplayName, setDisplayName } from "./lib/fileManifest";
 import { loadSupabaseSongs } from "./lib/loadSupabaseSongs";
 import { instruments, sampleSongs } from "./data/songs";
 import "./styles.css";
@@ -535,7 +536,8 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
     return `${cleanSong}/full/${Date.now()}-${cleanFile}`;
   }
 
-  async function listStorageFiles(prefix = "") {
+  async function listStorageFiles(prefix = "", loadedManifest = null) {
+    const manifest = loadedManifest ?? (await loadFileManifest(bucket));
     const { data, error } = await supabase.storage.from(bucket).list(prefix, {
       limit: 1000,
       sortBy: { column: "name", order: "asc" }
@@ -547,10 +549,11 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
     for (const entry of data ?? []) {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.id === null) {
-        nextFiles.push(...(await listStorageFiles(path)));
+        nextFiles.push(...(await listStorageFiles(path, manifest)));
       } else {
         nextFiles.push({
           name: entry.name,
+          displayName: manifest[path]?.displayName || entry.name,
           path,
           size: entry.metadata?.size ?? 0,
           updatedAt: entry.updated_at ?? entry.created_at ?? ""
@@ -597,6 +600,7 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
         continue;
       }
 
+      await setDisplayName(bucket, path, item.file.name);
       const { data } = supabase.storage.from(bucket).getPublicUrl(path);
       nextQueue.push({ ...item, path, status: "완료", publicUrl: data.publicUrl });
     }
@@ -605,7 +609,7 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
     setMessage("업로드 처리가 끝났습니다.");
     await refreshFiles();
     if (category === "audio") {
-      await onLibraryRefresh(nextQueue.find((item) => item.status === "완료")?.path?.split("/")[0]);
+      await onLibraryRefresh(nextQueue.find((item) => item.publicUrl)?.path?.split("/")[0]);
     }
   }
 
@@ -620,6 +624,7 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
       return;
     }
 
+    await removeDisplayName(bucket, path);
     setMessage("파일을 삭제했습니다.");
     await refreshFiles();
     if (category === "audio") await onLibraryRefresh();
@@ -670,6 +675,7 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
       await supabase.storage.from(bucket).remove([path]);
     }
 
+    await moveDisplayName(bucket, path, nextPath, editingName.trim());
     setMessage("파일명을 변경했습니다.");
     setEditingPath("");
     setEditingName("");
@@ -784,7 +790,7 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
                   onChange={(event) => setEditingName(event.target.value)}
                 />
               ) : (
-                <strong>{file.name}</strong>
+                <strong>{file.displayName}</strong>
               )}
               <span>{file.path}</span>
             </div>
@@ -815,7 +821,7 @@ function UploadPanel({ selectedSong, onLibraryRefresh }) {
                     title="파일명 변경"
                     onClick={() => {
                       setEditingPath(file.path);
-                      setEditingName(file.name);
+                      setEditingName(file.displayName);
                     }}
                   >
                     <Pencil size={15} />

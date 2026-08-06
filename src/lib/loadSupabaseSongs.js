@@ -1,4 +1,5 @@
 import { instruments, sampleSongs } from "../data/songs";
+import { loadFileManifest, manifestPath } from "./fileManifest";
 import { supabase, supabaseConfig } from "./supabase";
 
 const audioExtensions = [".mp3", ".wav", ".m4a", ".ogg", ".flac"];
@@ -35,7 +36,7 @@ async function listAll(bucket, prefix = "") {
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.id === null) {
       files.push(...(await listAll(bucket, path)));
-    } else {
+    } else if (path !== manifestPath) {
       files.push(path);
     }
   }
@@ -52,16 +53,18 @@ export async function loadSupabaseSongs() {
   const albumBucket = supabaseConfig.buckets.album;
 
   try {
-    const [audioFiles, scoreFiles, albumFiles] = await Promise.all([
+    const [audioFiles, scoreFiles, albumFiles, audioManifest, scoreManifest] = await Promise.all([
       listAll(audioBucket),
       listAll(scoreBucket).catch(() => []),
-      listAll(albumBucket).catch(() => [])
+      listAll(albumBucket).catch(() => []),
+      loadFileManifest(audioBucket).catch(() => ({})),
+      loadFileManifest(scoreBucket).catch(() => ({}))
     ]);
 
     const fullAudioFiles = audioFiles.filter((path) => hasExtension(path, audioExtensions));
     const mappedSongs = fullAudioFiles.map((path, index) => {
       const folder = path.includes("/") ? path.split("/")[0] : `song-${index + 1}`;
-      const title = titleFromPath(path) || folder;
+      const title = audioManifest[path]?.displayName || titleFromPath(path) || folder;
       const splitTracks = Object.fromEntries(
         instruments.map((instrument) => {
           const track = audioFiles.find(
@@ -72,7 +75,10 @@ export async function loadSupabaseSongs() {
       );
       const scores = scoreFiles
         .filter((file) => file.startsWith(`${folder}/`) && hasExtension(file, scoreExtensions))
-        .map((file) => ({ label: titleFromPath(file) || "악보", url: publicUrl(scoreBucket, file) }));
+        .map((file) => ({
+          label: scoreManifest[file]?.displayName || titleFromPath(file) || "악보",
+          url: publicUrl(scoreBucket, file)
+        }));
       const image = albumFiles.find(
         (file) => file.startsWith(`${folder}/`) && hasExtension(file, [".jpg", ".jpeg", ".png", ".webp"])
       );
