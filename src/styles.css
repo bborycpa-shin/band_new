@@ -617,23 +617,26 @@ input[type="range"] {
 .score-row {
   grid-template-columns: minmax(0, 1fr) 28px;
   min-height: 30px;
-  padding: 4px 7px;
+  padding: 6px 7px;
+  font-size: 0.76rem;
   font-weight: 900;
 }
 
 .score-row a {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 8px;
   min-width: 0;
   color: inherit;
+  line-height: 1.25;
   text-decoration: none;
 }
 
 .score-row a span {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow: visible;
+  white-space: normal;
+  word-break: break-all;
 }
 
 .score-row button {
@@ -713,17 +716,22 @@ input[type="range"] {
   position: fixed;
   inset: 0;
   z-index: 20;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 24px 64px;
   background: rgba(11, 18, 32, 0.86);
 }
 
 .photo-viewer img {
-  max-width: min(98vw, 1500px);
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(calc(100vw - 128px), 1500px);
   max-height: calc(100vh - 76px);
   border-radius: 8px;
   object-fit: contain;
+  object-position: center center;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
 }
 
@@ -766,8 +774,7 @@ input[type="range"] {
   left: 50%;
   bottom: 22px;
   display: inline-flex;
-  gap: 12px;
-  max-width: min(720px, calc(100vw - 36px));
+  max-width: calc(100vw - 36px);
   padding: 8px 12px;
   border-radius: 999px;
   color: #ffffff;
@@ -1005,7 +1012,7 @@ input[type="range"] {
   }
 
   .photo-viewer {
-    padding: 62px 12px 126px;
+    padding: 62px 20px 126px;
   }
 
   .photo-grid {
@@ -1021,10 +1028,11 @@ input[type="range"] {
   .photo-viewer img {
     width: auto;
     height: auto;
-    max-width: calc(100vw - 24px);
+    max-width: calc(100vw - 40px);
     max-height: calc(100vh - 230px);
     max-height: calc(100svh - 230px);
     object-fit: contain;
+    object-position: center center;
   }
 
   .viewer-close {

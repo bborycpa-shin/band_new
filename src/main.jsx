@@ -1677,7 +1677,6 @@ function AlbumPanel({
             <ChevronRight size={34} />
           </button>
           <div className="viewer-caption">
-            <span>{activeImage.label}</span>
             <strong>
               {(viewerIndex ?? 0) + 1} / {selectedAlbum.images.length}
             </strong>
@@ -1821,6 +1820,11 @@ createRoot(document.getElementById("root")).render(<App />);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
+    navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js`)
+      .then((registration) => {
+        registration.update().catch(() => {});
+      })
+      .catch(() => {});
   });
 }

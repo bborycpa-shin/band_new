@@ -1,5 +1,5 @@
-const CACHE_NAME = "band-player-pwa-v2";
-const APP_SHELL = ["./", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon.svg"];
+const CACHE_NAME = "band-player-pwa-v3";
+const APP_SHELL = ["./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -24,6 +24,11 @@ self.addEventListener("fetch", (event) => {
 
   if (request.method !== "GET") return;
   if (!request.url.startsWith(self.location.origin)) return;
+
+  if (request.mode === "navigate" || request.destination === "document") {
+    event.respondWith(fetch(request));
+    return;
+  }
 
   event.respondWith(
     fetch(request)
