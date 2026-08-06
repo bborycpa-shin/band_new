@@ -49,12 +49,14 @@ export async function loadSupabaseSongs() {
   }
 
   const audioBucket = supabaseConfig.buckets.audio;
+  const splitBucket = supabaseConfig.buckets.split;
   const scoreBucket = supabaseConfig.buckets.score;
   const albumBucket = supabaseConfig.buckets.album;
 
   try {
-    const [audioFiles, scoreFiles, albumFiles, audioManifest, scoreManifest] = await Promise.all([
+    const [audioFiles, splitFiles, scoreFiles, albumFiles, audioManifest, scoreManifest] = await Promise.all([
       listAll(audioBucket),
+      listAll(splitBucket).catch(() => []),
       listAll(scoreBucket).catch(() => []),
       listAll(albumBucket).catch(() => []),
       loadFileManifest(audioBucket).catch(() => ({})),
@@ -62,15 +64,34 @@ export async function loadSupabaseSongs() {
     ]);
 
     const fullAudioFiles = audioFiles.filter((path) => hasExtension(path, audioExtensions));
-    const mappedSongs = fullAudioFiles.map((path, index) => {
+    const orderedAudioFiles = fullAudioFiles.sort((a, b) => {
+      const order = audioManifest.__order ?? [];
+      const ai = order.indexOf(a);
+      const bi = order.indexOf(b);
+      if (ai === -1 && bi === -1) return a.localeCompare(b);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+
+    const mappedSongs = orderedAudioFiles.map((path, index) => {
       const folder = path.includes("/") ? path.split("/")[0] : `song-${index + 1}`;
       const title = audioManifest[path]?.displayName || titleFromPath(path) || folder;
+      const splitTrackPaths = Object.fromEntries(
+        instruments.map((instrument) => {
+          const track = splitFiles.find(
+            (file) =>
+              file.startsWith(`${folder}/`) &&
+              (file.toLowerCase().includes(instrument.key) ||
+                file.toLowerCase().includes(instrument.label.toLowerCase()))
+          );
+          return [instrument.key, track || ""];
+        })
+      );
       const splitTracks = Object.fromEntries(
         instruments.map((instrument) => {
-          const track = audioFiles.find(
-            (file) => file.startsWith(`${folder}/`) && file.toLowerCase().includes(instrument.key)
-          );
-          return [instrument.key, track ? publicUrl(audioBucket, track) : publicUrl(audioBucket, path)];
+          const track = splitTrackPaths[instrument.key];
+          return [instrument.key, track ? publicUrl(splitBucket, track) : publicUrl(audioBucket, path)];
         })
       );
       const scores = scoreFiles
@@ -87,7 +108,9 @@ export async function loadSupabaseSongs() {
         id: folder || `song-${index + 1}`,
         title,
         artist: "",
+        audioPath: path,
         audioUrl: publicUrl(audioBucket, path),
+        splitTrackPaths,
         splitTracks,
         scores,
         album: {

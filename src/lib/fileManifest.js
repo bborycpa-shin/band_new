@@ -54,3 +54,9 @@ export async function removeDisplayName(bucket, path) {
   delete manifest[path];
   await saveFileManifest(bucket, manifest);
 }
+
+export async function setManifestOrder(bucket, paths) {
+  const manifest = await loadFileManifest(bucket);
+  manifest.__order = paths;
+  await saveFileManifest(bucket, manifest);
+}
