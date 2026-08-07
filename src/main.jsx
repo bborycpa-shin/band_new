@@ -2502,14 +2502,16 @@ function createNoiseBuffer(context, length = 0.22) {
 }
 
 const drumPads = [
-  { key: "kick", label: "킥", sub: "Kick" },
-  { key: "hat", label: "하이햇", sub: "Hi-Hat" },
-  { key: "snare", label: "스네어", sub: "Snare" },
-  { key: "highTom", label: "하이탐", sub: "High Tom" },
-  { key: "lowTom", label: "로우탐", sub: "Low Tom" },
-  { key: "midTom", label: "미드탐", sub: "Mid Tom" },
-  { key: "rimshot", label: "림샷", sub: "Rimshot" },
-  { key: "crash", label: "크래시", sub: "Crash" }
+  { key: "kick", label: "킥", sub: "Kick", visual: "kick" },
+  { key: "hat", label: "하이햇", sub: "Hi-Hat", visual: "hat" },
+  { key: "snare", label: "스네어", sub: "Snare", visual: "snare" },
+  { key: "highTom", label: "하이탐", sub: "High Tom", visual: "tom" },
+  { key: "lowTom", label: "로우탐", sub: "Low Tom", visual: "tom" },
+  { key: "midTom", label: "미드탐", sub: "Mid Tom", visual: "tom" },
+  { key: "rimshot", label: "림샷", sub: "Rimshot", visual: "rim" },
+  { key: "crash", label: "크래시", sub: "Crash", visual: "cymbal" },
+  { key: "clap", label: "클랩", sub: "Clap", visual: "clap" },
+  { key: "openHat", label: "오픈하이햇", sub: "Open Hat", visual: "openhat" }
 ];
 
 const tomSettings = {
@@ -2559,18 +2561,18 @@ function playDrumSound(type) {
   const noise = context.createBufferSource();
   const filter = context.createBiquadFilter();
   const gain = context.createGain();
-  noise.buffer = createNoiseBuffer(context, type === "crash" ? 0.8 : 0.25);
+  noise.buffer = createNoiseBuffer(context, type === "crash" || type === "openHat" ? 0.8 : 0.25);
 
-  if (type === "snare" || type === "rimshot") {
+  if (type === "snare" || type === "rimshot" || type === "clap") {
     filter.type = "bandpass";
-    filter.frequency.setValueAtTime(type === "rimshot" ? 2600 : 1800, now);
-    gain.gain.setValueAtTime(type === "rimshot" ? 0.9 : 1.12, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + (type === "rimshot" ? 0.09 : 0.24));
-  } else if (type === "hat") {
+    filter.frequency.setValueAtTime(type === "rimshot" ? 2600 : type === "clap" ? 1700 : 1800, now);
+    gain.gain.setValueAtTime(type === "rimshot" ? 0.9 : type === "clap" ? 1.02 : 1.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + (type === "rimshot" ? 0.09 : type === "clap" ? 0.16 : 0.24));
+  } else if (type === "hat" || type === "openHat") {
     filter.type = "highpass";
-    filter.frequency.setValueAtTime(7200, now);
-    gain.gain.setValueAtTime(0.78, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+    filter.frequency.setValueAtTime(type === "openHat" ? 5200 : 7200, now);
+    gain.gain.setValueAtTime(type === "openHat" ? 0.72 : 0.78, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + (type === "openHat" ? 0.48 : 0.08));
   } else if (type === "crash") {
     filter.type = "highpass";
     filter.frequency.setValueAtTime(3600, now);
@@ -2587,7 +2589,25 @@ function playDrumSound(type) {
   filter.connect(gain);
   gain.connect(destination);
   noise.start(now);
-  noise.stop(now + (type === "crash" ? 0.8 : 0.28));
+  noise.stop(now + (type === "crash" || type === "openHat" ? 0.8 : 0.28));
+
+  if (type === "clap") {
+    [0.018, 0.036].forEach((offset) => {
+      const slap = context.createBufferSource();
+      const slapFilter = context.createBiquadFilter();
+      const slapGain = context.createGain();
+      slap.buffer = createNoiseBuffer(context, 0.08);
+      slapFilter.type = "bandpass";
+      slapFilter.frequency.setValueAtTime(1900, now + offset);
+      slapGain.gain.setValueAtTime(0.34, now + offset);
+      slapGain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.07);
+      slap.connect(slapFilter);
+      slapFilter.connect(slapGain);
+      slapGain.connect(destination);
+      slap.start(now + offset);
+      slap.stop(now + offset + 0.08);
+    });
+  }
 
   if (type === "rimshot") {
     const stick = context.createOscillator();
@@ -2713,7 +2733,7 @@ function DrumPanel() {
     <section className="panel keyboard-panel">
       <div className="section-title">
         <h2>드럼</h2>
-        <span>8개 패드</span>
+        <span>10개 패드</span>
       </div>
       <div className="instrument-section">
         <div className="instrument-heading">
@@ -2731,7 +2751,8 @@ function DrumPanel() {
                 hitDrum(pad.key);
               }}
             >
-              <span>{pad.label}</span>
+              <span className={`drum-visual drum-visual-${pad.visual}`} aria-hidden="true" />
+              <span className="drum-label">{pad.label}</span>
               <small>{pad.sub}</small>
             </button>
           ))}

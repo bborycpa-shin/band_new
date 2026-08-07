@@ -1229,10 +1229,12 @@ input[type="range"]::-webkit-slider-thumb {
 
 .drum-pad {
   display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
   justify-items: start;
   gap: 3px;
-  min-height: 77px;
-  padding: 14px 12px;
+  min-height: 69px;
+  padding: 11px 12px;
   border: 1px solid #cdd8e8;
   border-radius: 8px;
   color: #1b253b;
@@ -1243,12 +1245,130 @@ input[type="range"]::-webkit-slider-thumb {
   touch-action: manipulation;
 }
 
-.drum-pad span {
+.drum-visual {
+  grid-row: span 2;
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+
+.drum-visual::before,
+.drum-visual::after {
+  position: absolute;
+  content: "";
+  box-sizing: border-box;
+}
+
+.drum-visual-kick::before,
+.drum-visual-tom::before,
+.drum-visual-snare::before {
+  inset: 3px;
+  border: 3px solid #64748b;
+  border-radius: 999px;
+  background: #eef4fb;
+}
+
+.drum-visual-kick::after {
+  left: 11px;
+  top: 11px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #64748b;
+}
+
+.drum-visual-tom::after {
+  left: 6px;
+  right: 6px;
+  bottom: 4px;
+  height: 3px;
+  border-radius: 999px;
+  background: #64748b;
+}
+
+.drum-visual-snare::after,
+.drum-visual-rim::after {
+  left: 5px;
+  right: 5px;
+  top: 13px;
+  height: 2px;
+  border-radius: 999px;
+  background: #64748b;
+  box-shadow: 0 5px 0 #64748b;
+}
+
+.drum-visual-rim::before {
+  inset: 4px;
+  border: 2px solid #64748b;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.drum-visual-hat::before,
+.drum-visual-openhat::before,
+.drum-visual-cymbal::before {
+  left: 3px;
+  right: 3px;
+  top: 7px;
+  height: 8px;
+  border-radius: 999px 999px 45% 45%;
+  background: #f5b84b;
+  transform: rotate(-8deg);
+}
+
+.drum-visual-hat::after,
+.drum-visual-openhat::after {
+  left: 13px;
+  top: 15px;
+  width: 3px;
+  height: 10px;
+  border-radius: 999px;
+  background: #64748b;
+}
+
+.drum-visual-openhat::before {
+  top: 3px;
+  box-shadow: 0 8px 0 rgba(245, 184, 75, 0.72);
+}
+
+.drum-visual-cymbal::after {
+  left: 12px;
+  top: 15px;
+  width: 4px;
+  height: 9px;
+  border-radius: 999px;
+  background: #64748b;
+  box-shadow: -5px 9px 0 -2px #64748b, 5px 9px 0 -2px #64748b;
+}
+
+.drum-visual-clap::before,
+.drum-visual-clap::after {
+  top: 7px;
+  width: 12px;
+  height: 15px;
+  border: 2px solid #64748b;
+  border-radius: 8px 8px 6px 6px;
+  background: #fff7ed;
+}
+
+.drum-visual-clap::before {
+  left: 5px;
+  transform: rotate(-18deg);
+}
+
+.drum-visual-clap::after {
+  right: 5px;
+  transform: rotate(18deg);
+}
+
+.drum-label {
   font-size: 0.98rem;
   font-weight: 700;
 }
 
 .drum-pad small {
+  grid-column: 2;
   color: #8aa0bd;
   font-size: 0.68rem;
   font-weight: 700;
@@ -1265,6 +1385,13 @@ input[type="range"]::-webkit-slider-thumb {
 .drum-pad:active small,
 .drum-pad.active small {
   color: #e0f2fe;
+}
+
+.drum-pad:active .drum-visual::before,
+.drum-pad:active .drum-visual::after,
+.drum-pad.active .drum-visual::before,
+.drum-pad.active .drum-visual::after {
+  filter: brightness(1.18);
 }
 
 .player {
@@ -1686,11 +1813,17 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .drum-pad {
-    min-height: 62px;
-    padding: 11px 10px;
+    grid-template-columns: 30px minmax(0, 1fr);
+    min-height: 56px;
+    padding: 9px 9px;
   }
 
-  .drum-pad span {
+  .drum-visual {
+    width: 25px;
+    height: 25px;
+  }
+
+  .drum-label {
     font-size: 0.88rem;
   }
 
