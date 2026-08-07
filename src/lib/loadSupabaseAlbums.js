@@ -25,6 +25,12 @@ function publicUrl(bucket, path) {
   return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 }
 
+function uploadedTimeFromPath(path) {
+  const fileName = path.split("/").pop() || "";
+  const time = Number(fileName.split("-")[0]);
+  return Number.isFinite(time) ? time : 0;
+}
+
 async function listAll(bucket, prefix = "") {
   const { data, error } = await supabase.storage.from(bucket).list(prefix, {
     limit: 1000,
@@ -47,7 +53,7 @@ async function listAll(bucket, prefix = "") {
 }
 
 export function createEmptyAlbum(id = "album-empty", title = "사진 폴더를 추가해주세요") {
-  return { id, title, images: [] };
+  return { id, title, question: "", answer: "", images: [] };
 }
 
 export async function loadSupabaseAlbums() {
@@ -85,8 +91,11 @@ export async function loadSupabaseAlbums() {
     const albums = orderedFolders.map((folder) => ({
       id: folder,
       title: albumMeta[folder]?.title || titleFromFolder(folder),
+      question: albumMeta[folder]?.question || "",
+      answer: albumMeta[folder]?.answer || "",
       images: imageFiles
         .filter((path) => path.startsWith(`${folder}/`))
+        .sort((a, b) => uploadedTimeFromPath(b) - uploadedTimeFromPath(a) || b.localeCompare(a))
         .map((path) => {
           const fileName = path.split("/").pop();
           const thumbnailPath = thumbnailFiles.find((thumbnail) => thumbnail === `${folder}/.thumbs/${fileName}`);

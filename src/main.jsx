@@ -23,9 +23,9 @@ import {
   ChevronRight,
   FolderOpen,
   UploadCloud,
-  Users,
   Unlock,
   Volume2,
+  VolumeX,
   X
 } from "lucide-react";
 import { supabase, supabaseConfig } from "./lib/supabase";
@@ -50,16 +50,15 @@ const tabs = [
   { key: "split", label: "분할", icon: SlidersHorizontal },
   { key: "score", label: "악보", icon: Download },
   { key: "album", label: "앨범", icon: Image },
-  { key: "member", label: "멤버", icon: Users }
+  { key: "member", label: "건반", icon: Music2 }
 ];
 
 const rates = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
 const adminPasswordHashKey = "band-admin-password-hash";
-const keyShifts = [
-  { value: -1, label: "-반키" },
-  { value: 0, label: "원음" },
-  { value: 1, label: "+반키" }
-];
+const albumAccessKeyPrefix = "band-album-access-unlocked:";
+const defaultAlbumQuestion = "2026년 여름공연시 베이스기타 멤버이름은?(Hint:손**)";
+const defaultAlbumAnswer = "손상이";
+const albumPageSize = 20;
 
 function formatTime(seconds) {
   if (!Number.isFinite(seconds)) return "0:00";
@@ -70,6 +69,11 @@ function formatTime(seconds) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function formatKeyShift(value) {
+  if (value === 0) return "원음";
+  return value > 0 ? `+${value}키` : `${value}키`;
 }
 
 function applyPlaybackSettings(audio, rate, keyShift) {
@@ -214,6 +218,7 @@ function App() {
   const [albumStatus, setAlbumStatus] = useState("불러오는 중");
   const [selectedAlbumId, setSelectedAlbumId] = useState("");
   const [isAdminMode, setIsAdminMode] = useState(false);
+  const [unlockedAlbumIds, setUnlockedAlbumIds] = useState(() => new Set());
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackMode, setPlaybackMode] = useState("play");
   const [duration, setDuration] = useState(0);
@@ -234,6 +239,9 @@ function App() {
   );
   const audioRef = useRef(null);
   const splitRefs = useRef({});
+  const previousSplitVolumesRef = useRef(
+    Object.fromEntries(instruments.map((instrument) => [instrument.key, 0.7]))
+  );
 
   const selectedSong = useMemo(
     () => appSongs.find((song) => song.id === selectedId) ?? appSongs[0] ?? emptySong,
@@ -257,7 +265,7 @@ function App() {
         : result.songs[0]?.id ?? sampleSongs[0].id
     );
     if (result.source === "supabase") {
-      setLibraryStatus(`Supabase ${result.songs.length}곡`);
+      setLibraryStatus(`음원 ${result.songs.length}곡`);
     } else {
       setLibraryStatus(result.error ? `샘플 목록: ${result.error}` : "샘플 목록");
     }
@@ -356,6 +364,7 @@ function App() {
     setCurrentTime(0);
     setDuration(0);
     setAbLoop({ start: null, end: null });
+    setKeyShift(0);
   }, [selectedId, selectedSplitId]);
 
   useEffect(() => {
@@ -366,9 +375,10 @@ function App() {
     pauseSplitTracks();
     setPlaybackMode("play");
     audio.currentTime = 0;
+    applyPlaybackSettings(audio, rate, 0);
     audio.play().then(() => setIsPlaying(true)).catch(() => {});
     setPendingPlayId("");
-  }, [pendingPlayId, selectedSong]);
+  }, [pendingPlayId, selectedSong, rate]);
 
   useEffect(() => {
     if (!pendingSplitPlayId || pendingSplitPlayId !== selectedSplitSong.id) return;
@@ -385,27 +395,30 @@ function App() {
     setPlaybackMode("split");
     activeAudios.forEach((audio) => {
       audio.currentTime = 0;
-      applyPlaybackSettings(audio, rate, keyShift);
+      applyPlaybackSettings(audio, rate, 0);
       audio.volume = splitMuted[audio.dataset.instrument] ? 0 : splitVolumes[audio.dataset.instrument] ?? 0.7;
     });
     Promise.allSettled(activeAudios.map((audio) => audio.play())).then(() => setIsPlaying(true));
     setPendingSplitPlayId("");
-  }, [pendingSplitPlayId, selectedSplitSong, rate, keyShift, splitVolumes, splitMuted]);
+  }, [pendingSplitPlayId, selectedSplitSong, rate, splitVolumes, splitMuted]);
 
   function selectSong(song) {
     setSelectedId(song.id);
+    setKeyShift(0);
     setPendingPlayId(song.id);
     if (song.audioUrl && audioRef.current) {
       pauseSplitTracks();
       setPlaybackMode("play");
       audioRef.current.src = song.audioUrl;
       audioRef.current.currentTime = 0;
+      applyPlaybackSettings(audioRef.current, rate, 0);
       audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
     }
   }
 
   function selectSplitSong(song) {
     setSelectedSplitId(song.id);
+    setKeyShift(0);
   }
 
   function pauseMainAudio() {
@@ -474,6 +487,7 @@ function App() {
 
   async function playSplitSong(song) {
     setSelectedSplitId(song.id);
+    setKeyShift(0);
     setPendingSplitPlayId(song.id);
     setCurrentTime(0);
     setPlaybackMode("split");
@@ -486,7 +500,7 @@ function App() {
         if (!audio || !src) return null;
         audio.src = src;
         audio.currentTime = 0;
-        applyPlaybackSettings(audio, rate, keyShift);
+        applyPlaybackSettings(audio, rate, 0);
         audio.volume = splitMuted[instrument.key] ? 0 : splitVolumes[instrument.key] ?? 0.7;
         return audio;
       })
@@ -557,7 +571,47 @@ function App() {
     setCurrentTime(time);
   }
 
+  function setSplitInstrumentVolume(instrumentKey, value) {
+    if (value > 0) previousSplitVolumesRef.current[instrumentKey] = value;
+    setSplitMuted((current) => ({
+      ...current,
+      [instrumentKey]: false
+    }));
+    setSplitVolumes((current) => ({
+      ...current,
+      [instrumentKey]: value
+    }));
+  }
+
+  function toggleSplitVolumeZero(instrumentKey) {
+    setSplitMuted((current) => ({
+      ...current,
+      [instrumentKey]: false
+    }));
+    setSplitVolumes((current) => {
+      const currentValue = current[instrumentKey] ?? 0.7;
+      if (currentValue > 0) {
+        previousSplitVolumesRef.current[instrumentKey] = currentValue;
+        return {
+          ...current,
+          [instrumentKey]: 0
+        };
+      }
+
+      return {
+        ...current,
+        [instrumentKey]: previousSplitVolumesRef.current[instrumentKey] || 0.7
+      };
+    });
+  }
+
   function setAllSplitVolumes(value) {
+    if (value > 0) {
+      previousSplitVolumesRef.current = Object.fromEntries(
+        instruments.map((instrument) => [instrument.key, value])
+      );
+    }
+    setSplitMuted(Object.fromEntries(instruments.map((instrument) => [instrument.key, false])));
     setSplitVolumes(Object.fromEntries(instruments.map((instrument) => [instrument.key, value])));
   }
 
@@ -756,6 +810,24 @@ function App() {
     await refreshSplitLibrary(folder);
   }
 
+  async function renameSplitSong(song) {
+    if (!supabase || !song?.id || song.id === "split-empty") return;
+    const title = window.prompt("분할 곡 이름을 입력해주세요.", song.title);
+    if (!title?.trim()) return;
+
+    const bucket = supabaseConfig.buckets.split;
+    const manifest = await loadFileManifest(bucket);
+    manifest.__splitSongs = {
+      ...(manifest.__splitSongs ?? {}),
+      [song.id]: {
+        ...(manifest.__splitSongs?.[song.id] ?? {}),
+        title: title.trim()
+      }
+    };
+    await saveFileManifest(bucket, manifest);
+    await refreshSplitLibrary(song.id);
+  }
+
   async function deleteSplitTrack(song, instrumentKey) {
     const path = song?.splitTrackPaths?.[instrumentKey];
     if (!supabase || !path) return;
@@ -859,6 +931,46 @@ function App() {
     await refreshAlbumLibrary(folder);
   }
 
+  async function renameAlbumFolder(album) {
+    if (!supabase || !album?.id || album.id === "album-empty") return;
+    const title = window.prompt("앨범 폴더 이름을 입력해주세요.", album.title);
+    if (!title?.trim()) return;
+
+    const bucket = supabaseConfig.buckets.album;
+    const manifest = await loadFileManifest(bucket);
+    manifest.__albumFolders = {
+      ...(manifest.__albumFolders ?? {}),
+      [album.id]: {
+        ...(manifest.__albumFolders?.[album.id] ?? {}),
+        title: title.trim()
+      }
+    };
+    await saveFileManifest(bucket, manifest);
+    await refreshAlbumLibrary(album.id);
+  }
+
+  async function updateAlbumAccess(album) {
+    if (!supabase || !album?.id || album.id === "album-empty") return;
+    const question = window.prompt("앨범 열람 질문을 입력해주세요.", album.question || defaultAlbumQuestion);
+    if (question === null) return;
+    const answer = window.prompt("앨범 열람 정답을 입력해주세요.", album.answer || defaultAlbumAnswer);
+    if (answer === null) return;
+
+    const bucket = supabaseConfig.buckets.album;
+    const manifest = await loadFileManifest(bucket);
+    manifest.__albumFolders = {
+      ...(manifest.__albumFolders ?? {}),
+      [album.id]: {
+        ...(manifest.__albumFolders?.[album.id] ?? {}),
+        title: album.title,
+        question: question.trim(),
+        answer: answer.trim()
+      }
+    };
+    await saveFileManifest(bucket, manifest);
+    await refreshAlbumLibrary(album.id);
+  }
+
   async function uploadAlbumPhotos(album, fileList) {
     const files = Array.from(fileList ?? []);
     if (!supabase || !files.length) return;
@@ -921,7 +1033,7 @@ function App() {
 
   async function deleteAlbumFolder(album) {
     if (!supabase || !album?.id || album.id === "album-empty") return;
-    const ok = window.confirm(`${album.title} 폴더와 안의 사진을 삭제할까요?`);
+    const ok = window.confirm(`${album.title} 앨범의 사진을 모두 삭제할까요? 폴더는 유지됩니다.`);
     if (!ok) return;
 
     const bucket = supabaseConfig.buckets.album;
@@ -935,13 +1047,11 @@ function App() {
     }
 
     const manifest = await loadFileManifest(bucket);
-    delete manifest.__albumFolders?.[album.id];
-    manifest.__albumOrder = (manifest.__albumOrder ?? []).filter((item) => item !== album.id);
     paths.forEach((path) => {
       delete manifest[path];
     });
     await saveFileManifest(bucket, manifest);
-    await refreshAlbumLibrary("");
+    await refreshAlbumLibrary(album.id);
   }
 
   const playerMode = currentPlayerMode();
@@ -978,6 +1088,21 @@ function App() {
     }
 
     window.alert("\ube44\ubc00\ubc88\ud638\uac00 \ud2c0\ub838\uc2b5\ub2c8\ub2e4.");
+  }
+
+  function unlockAlbumAccess(album) {
+    if (!album?.id || album.id === "album-empty") return;
+    const question = album.question || defaultAlbumQuestion;
+    const expectedAnswer = album.answer || defaultAlbumAnswer;
+    const answer = window.prompt(question);
+    if (answer === null) return;
+    if (answer.trim() === expectedAnswer) {
+      localStorage.setItem(`${albumAccessKeyPrefix}${album.id}`, "true");
+      setUnlockedAlbumIds((current) => new Set([...current, album.id]));
+      return;
+    }
+
+    window.alert("정답이 아닙니다.");
   }
 
   return (
@@ -1054,14 +1179,15 @@ function App() {
             splitRefs={splitRefs}
             splitVolumes={splitVolumes}
             splitMuted={splitMuted}
-            setSplitVolumes={setSplitVolumes}
-            setSplitMuted={setSplitMuted}
+            setSplitInstrumentVolume={setSplitInstrumentVolume}
+            onToggleSplitVolumeZero={toggleSplitVolumeZero}
             setAllSplitVolumes={setAllSplitVolumes}
             setCurrentTime={handleTrackedTime}
             setDuration={setDuration}
             setIsPlaying={setIsPlaying}
             onAddSplitSong={addSplitSong}
             onPlaySplitSong={playSplitSong}
+            onRenameSplitSong={renameSplitSong}
             onUploadSplitTrack={uploadSplitTrack}
             onUploadSplitTracks={uploadSplitTracks}
             onDeleteSplitTrack={deleteSplitTrack}
@@ -1084,14 +1210,18 @@ function App() {
             selectedAlbum={selectedAlbum}
             albumStatus={albumStatus}
             isAdmin={isAdminMode}
+            unlockedAlbumIds={unlockedAlbumIds}
             onSelectAlbum={setSelectedAlbumId}
+            onUnlockAlbum={unlockAlbumAccess}
             onAddAlbumFolder={addAlbumFolder}
+            onRenameAlbumFolder={renameAlbumFolder}
+            onUpdateAlbumAccess={updateAlbumAccess}
             onUploadAlbumPhotos={uploadAlbumPhotos}
             onDeleteAlbumFolder={deleteAlbumFolder}
             onDeleteAlbumPhoto={deleteAlbumPhoto}
           />
         )}
-        {activeTab === "member" && <MemberPanel />}
+        {activeTab === "member" && <KeyboardPanel />}
       </main>
 
       <PlayerBar
@@ -1588,14 +1718,15 @@ function SplitPanel({
   splitRefs,
   splitVolumes,
   splitMuted,
-  setSplitVolumes,
-  setSplitMuted,
+  setSplitInstrumentVolume,
+  onToggleSplitVolumeZero,
   setAllSplitVolumes,
   setCurrentTime,
   setDuration,
   setIsPlaying,
   onAddSplitSong,
   onPlaySplitSong,
+  onRenameSplitSong,
   onUploadSplitTrack,
   onUploadSplitTracks,
   onDeleteSplitTrack,
@@ -1661,22 +1792,19 @@ function SplitPanel({
         </div>
 
         <div className="mixer">
-          {instruments.map((instrument) => (
+          {instruments.map((instrument) => {
+            const isZeroVolume = (splitVolumes[instrument.key] ?? 0) <= 0;
+            return (
             <div className={isAdmin ? "track-row admin-track-row" : "track-row"} key={instrument.key}>
               <div className="track-name">
                 <label>{instrument.label}</label>
                 <button
-                  className={splitMuted[instrument.key] ? "track-mute-button active" : "track-mute-button"}
+                  className={isZeroVolume ? "track-mute-button active" : "track-mute-button"}
                   type="button"
-                  title={`${instrument.label} 음소거`}
-                  onClick={() =>
-                    setSplitMuted((current) => ({
-                      ...current,
-                      [instrument.key]: !current[instrument.key]
-                    }))
-                  }
+                  title={isZeroVolume ? `${instrument.label} 볼륨 복구` : `${instrument.label} 볼륨 0%`}
+                  onClick={() => onToggleSplitVolumeZero?.(instrument.key)}
                 >
-                  {splitMuted[instrument.key] ? "해제" : "Mute"}
+                  {isZeroVolume ? <VolumeX size={14} /> : <Volume2 size={14} />}
                 </button>
               </div>
               <input
@@ -1685,12 +1813,7 @@ function SplitPanel({
                 max="1"
                 step="0.01"
                 value={splitVolumes[instrument.key]}
-                onChange={(event) =>
-                  setSplitVolumes((current) => ({
-                    ...current,
-                    [instrument.key]: Number(event.target.value)
-                  }))
-                }
+                onChange={(event) => setSplitInstrumentVolume(instrument.key, Number(event.target.value))}
               />
               <span>{Math.round(splitVolumes[instrument.key] * 100)}%</span>
               {isAdmin && <label className="track-upload-button" title={`${instrument.label} 파일 업로드`}>
@@ -1714,7 +1837,8 @@ function SplitPanel({
                 <Trash2 size={15} />
               </button>}
             </div>
-          ))}
+            );
+          })}
           {splitAudios}
         </div>
       </div>
@@ -1753,6 +1877,18 @@ function SplitPanel({
             >
               <Play size={14} fill="currentColor" />
             </button>
+            {isAdmin && <button
+              className="split-row-delete-button"
+              type="button"
+              title="분할곡 이름 변경"
+              disabled={song.id === "split-empty"}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRenameSplitSong?.(song);
+              }}
+            >
+              <Pencil size={14} />
+            </button>}
             {isAdmin && <button
               className="split-row-delete-button"
               type="button"
@@ -1883,23 +2019,61 @@ function ScorePanel({ sheets, songs, sheetStatus, isAdmin, onUploadSheet, onDele
   );
 }
 
+function AlbumLockedPanel({ album, onUnlock }) {
+  return (
+    <div className="album-locked-panel">
+      <div className="album-lock-box">
+        <Lock size={28} />
+        <h2>앨범 잠금</h2>
+        <p>{album?.title ? `${album.title} 폴더는 확인 질문을 맞힌 사람만 볼 수 있습니다.` : "앨범 사진은 확인 질문을 맞힌 사람만 볼 수 있습니다."}</p>
+        <button type="button" onClick={onUnlock}>
+          폴더 열람하기
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AlbumPanel({
   albums,
   selectedAlbum,
   albumStatus,
   isAdmin,
+  unlockedAlbumIds,
   onSelectAlbum,
+  onUnlockAlbum,
   onAddAlbumFolder,
+  onRenameAlbumFolder,
+  onUpdateAlbumAccess,
   onUploadAlbumPhotos,
   onDeleteAlbumFolder,
   onDeleteAlbumPhoto
 }) {
   const [viewerIndex, setViewerIndex] = useState(null);
+  const [photoPage, setPhotoPage] = useState(0);
+  const [isDragOver, setIsDragOver] = useState(false);
   const activeImage = viewerIndex === null ? null : selectedAlbum.images[viewerIndex];
+  const totalPhotoPages = Math.max(1, Math.ceil(selectedAlbum.images.length / albumPageSize));
+  const currentPhotoPage = Math.min(photoPage, totalPhotoPages - 1);
+  const imageStartIndex = currentPhotoPage * albumPageSize;
+  const visibleImages = selectedAlbum.images.slice(imageStartIndex, imageStartIndex + albumPageSize);
+  const canManageAlbum = isAdmin && selectedAlbum.id !== "album-empty";
+  const isAlbumUnlocked =
+    isAdmin ||
+    selectedAlbum.id === "album-empty" ||
+    unlockedAlbumIds?.has(selectedAlbum.id) ||
+    localStorage.getItem(`${albumAccessKeyPrefix}${selectedAlbum.id}`) === "true";
 
   useEffect(() => {
     setViewerIndex(null);
+    setPhotoPage(0);
   }, [selectedAlbum.id]);
+
+  useEffect(() => {
+    if (photoPage > totalPhotoPages - 1) {
+      setPhotoPage(totalPhotoPages - 1);
+    }
+  }, [photoPage, totalPhotoPages]);
 
   function moveViewer(offset) {
     if (!selectedAlbum.images.length) return;
@@ -1907,6 +2081,15 @@ function AlbumPanel({
       const index = current ?? 0;
       return (index + offset + selectedAlbum.images.length) % selectedAlbum.images.length;
     });
+  }
+
+  function handleAlbumDrop(event) {
+    event.preventDefault();
+    setIsDragOver(false);
+    if (!canManageAlbum) return;
+    const files = Array.from(event.dataTransfer?.files ?? []).filter((file) => file.type.startsWith("image/"));
+    if (!files.length) return;
+    onUploadAlbumPhotos?.(selectedAlbum, files);
   }
 
   return (
@@ -1925,7 +2108,13 @@ function AlbumPanel({
           {albums.map((album, index) => (
             <div
               key={album.id}
-              className={selectedAlbum.id === album.id ? "song-row selected" : "song-row"}
+              className={[
+                "song-row",
+                isAdmin ? "with-action" : "",
+                selectedAlbum.id === album.id ? "selected" : ""
+              ]
+                .filter(Boolean)
+                .join(" ")}
               onClick={() => onSelectAlbum(album.id)}
             >
               <span className="song-number">{index + 1}</span>
@@ -1939,15 +2128,40 @@ function AlbumPanel({
               >
                 <span className="song-name">{album.title}</span>
               </button>
+              {isAdmin && (
+                <div className="song-actions" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    title="앨범 폴더명 변경"
+                    disabled={album.id === "album-empty"}
+                    onClick={() => onRenameAlbumFolder?.(album)}
+                  >
+                    <Pencil size={15} />
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
       </div>
-      <div className="panel album-panel">
+      <div
+        className={isDragOver && canManageAlbum ? "panel album-panel drag-over" : "panel album-panel"}
+        onDragOver={(event) => {
+          if (!canManageAlbum) return;
+          event.preventDefault();
+          setIsDragOver(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setIsDragOver(false);
+          }
+        }}
+        onDrop={handleAlbumDrop}
+      >
         <div className="section-title">
           <h2>{selectedAlbum.title}</h2>
             <div className="section-actions">
-            {isAdmin && <label className="mini-file-button text-file-button">
+            {canManageAlbum && <label className="mini-file-button text-file-button">
               사진 추가
               <input
                 type="file"
@@ -1959,6 +2173,14 @@ function AlbumPanel({
                 }}
               />
             </label>}
+            {canManageAlbum && <button
+              className="mini-file-button"
+              type="button"
+              title="열람 질문/정답 변경"
+              onClick={() => onUpdateAlbumAccess?.(selectedAlbum)}
+            >
+              <Lock size={15} />
+            </button>}
             {isAdmin && <button
               className="mini-file-button"
               type="button"
@@ -1973,11 +2195,14 @@ function AlbumPanel({
             </button>}
           </div>
         </div>
-        {selectedAlbum.images.length ? (
+        {!isAlbumUnlocked ? (
+          <AlbumLockedPanel album={selectedAlbum} onUnlock={() => onUnlockAlbum?.(selectedAlbum)} />
+        ) : selectedAlbum.images.length ? (
+          <>
           <div className="photo-grid">
-            {selectedAlbum.images.map((image, index) => (
+            {visibleImages.map((image, index) => (
               <div className="photo-thumb" key={image.path}>
-                <button type="button" onClick={() => setViewerIndex(index)}>
+                <button type="button" onClick={() => setViewerIndex(imageStartIndex + index)}>
                   <img src={image.thumbnailUrl || image.url} alt={image.label} loading="lazy" />
                 </button>
                 {isAdmin && <div className="photo-thumb-caption">
@@ -1996,8 +2221,32 @@ function AlbumPanel({
               </div>
             ))}
           </div>
+          {totalPhotoPages > 1 && (
+            <div className="photo-pagination">
+              <button
+                type="button"
+                disabled={currentPhotoPage === 0}
+                onClick={() => setPhotoPage((page) => Math.max(0, page - 1))}
+              >
+                이전
+              </button>
+              <span>
+                {currentPhotoPage + 1} / {totalPhotoPages}
+              </span>
+              <button
+                type="button"
+                disabled={currentPhotoPage >= totalPhotoPages - 1}
+                onClick={() => setPhotoPage((page) => Math.min(totalPhotoPages - 1, page + 1))}
+              >
+                다음
+              </button>
+            </div>
+          )}
+          </>
         ) : (
-          <div className="empty-list">등록된 사진이 없습니다.</div>
+          <div className="empty-list">
+            {canManageAlbum ? "사진을 선택하거나 여기로 드래그해서 업로드하세요." : "등록된 사진이 없습니다."}
+          </div>
         )}
       </div>
       {activeImage && (
@@ -2023,12 +2272,121 @@ function AlbumPanel({
   );
 }
 
-function MemberPanel() {
+const whiteKeys = [
+  { note: "C", label: "도" },
+  { note: "D", label: "레" },
+  { note: "E", label: "미" },
+  { note: "F", label: "파" },
+  { note: "G", label: "솔" },
+  { note: "A", label: "라" },
+  { note: "B", label: "시" }
+];
+
+const blackKeys = [
+  { note: "C#", label: "도#", left: 1 },
+  { note: "D#", label: "레#", left: 2 },
+  { note: "F#", label: "파#", left: 4 },
+  { note: "G#", label: "솔#", left: 5 },
+  { note: "A#", label: "라#", left: 6 }
+];
+
+const noteOffsets = {
+  C: 0,
+  "C#": 1,
+  D: 2,
+  "D#": 3,
+  E: 4,
+  F: 5,
+  "F#": 6,
+  G: 7,
+  "G#": 8,
+  A: 9,
+  "A#": 10,
+  B: 11
+};
+
+function noteFrequency(note, octave) {
+  const midi = (octave + 1) * 12 + noteOffsets[note];
+  return 440 * 2 ** ((midi - 69) / 12);
+}
+
+function playPianoTone(note, octave) {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+
+  const context = playPianoTone.context ?? new AudioContext();
+  playPianoTone.context = context;
+  if (context.state === "suspended") context.resume().catch(() => {});
+
+  const now = context.currentTime;
+  const frequency = noteFrequency(note, octave);
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  const tone = context.createBiquadFilter();
+
+  oscillator.type = "triangle";
+  oscillator.frequency.setValueAtTime(frequency, now);
+  tone.type = "lowpass";
+  tone.frequency.setValueAtTime(2200, now);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.32, now + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.14, now + 0.16);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.9);
+
+  oscillator.connect(tone);
+  tone.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start(now);
+  oscillator.stop(now + 0.95);
+}
+
+function KeyboardPanel() {
+  const octaves = [3, 4, 5, 6];
+
   return (
-    <section className="panel empty-panel">
-      <Users size={36} />
-      <h2>멤버</h2>
-      <p>초안에서는 멤버 공간만 마련했습니다.</p>
+    <section className="panel keyboard-panel">
+      <div className="section-title">
+        <h2>건반</h2>
+        <span>4옥타브</span>
+      </div>
+      <div className="keyboard-stack">
+        {octaves.map((octave, index) => (
+          <div className="octave-row" key={octave}>
+            <div className="octave-label">{index + 1}옥타브</div>
+            <div className="piano-octave">
+              <div className="white-key-row">
+                {whiteKeys.map((key) => (
+                  <button
+                    className="piano-key white-key"
+                    key={key.note}
+                    type="button"
+                    onPointerDown={() => playPianoTone(key.note, octave)}
+                  >
+                    <span>{key.label}</span>
+                    <small>{key.note}{index + 1}</small>
+                  </button>
+                ))}
+              </div>
+              <div className="black-key-row" aria-hidden="true">
+                {blackKeys.map((key) => (
+                  <button
+                    className="piano-key black-key"
+                    key={key.note}
+                    type="button"
+                    style={{ left: `${(key.left / 7) * 100}%` }}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      playPianoTone(key.note, octave);
+                    }}
+                  >
+                    <span>{key.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -2056,6 +2414,10 @@ function PlayerBar({
   seekTo,
   moveSong
 }) {
+  const abStartPercent =
+    abLoop.start !== null && duration ? clamp((abLoop.start / duration) * 100, 0, 100) : null;
+  const abEndPercent = abLoop.end !== null && duration ? clamp((abLoop.end / duration) * 100, 0, 100) : null;
+
   return (
     <footer className={activeTab === "split" ? "player split-player" : "player play-player"}>
       <audio
@@ -2076,15 +2438,32 @@ function PlayerBar({
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
       </div>
-      <input
-        className="seek"
-        type="range"
-        min="0"
-        max={duration || 0}
-        step="0.1"
-        value={Math.min(currentTime, duration || 0)}
-        onChange={(event) => seekTo(event.target.value)}
-      />
+      <div className="seek-wrap">
+        {abStartPercent !== null && (
+          <span className="ab-marker ab-start" style={{ left: `${abStartPercent}%` }} title="A 지점" />
+        )}
+        {abEndPercent !== null && (
+          <span className="ab-marker ab-end" style={{ left: `${abEndPercent}%` }} title="B 지점" />
+        )}
+        {abStartPercent !== null && abEndPercent !== null && (
+          <span
+            className="ab-range"
+            style={{
+              left: `${Math.min(abStartPercent, abEndPercent)}%`,
+              width: `${Math.abs(abEndPercent - abStartPercent)}%`
+            }}
+          />
+        )}
+        <input
+          className="seek"
+          type="range"
+          min="0"
+          max={duration || 0}
+          step="0.1"
+          value={Math.min(currentTime, duration || 0)}
+          onChange={(event) => seekTo(event.target.value)}
+        />
+      </div>
 
       <div className="rate-row">
         {rates.map((item) => (
@@ -2111,16 +2490,29 @@ function PlayerBar({
         />
         <span>{Math.round(volume * 100)}%</span>
         <div className="key-control" aria-label="Key control">
-          {keyShifts.map((item) => (
-            <button
-              key={item.value}
-              className={keyShift === item.value ? "key-button active" : "key-button"}
-              type="button"
-              onClick={() => setKeyShift(item.value)}
-            >
-              {item.label}
-            </button>
-          ))}
+          <button
+            className={keyShift < 0 ? "key-button active" : "key-button"}
+            type="button"
+            disabled={keyShift <= -8}
+            onClick={() => setKeyShift((value) => clamp(value - 1, -8, 8))}
+          >
+            {keyShift < 0 ? formatKeyShift(keyShift) : "반키↓"}
+          </button>
+          <button
+            className={keyShift === 0 ? "key-button active" : "key-button"}
+            type="button"
+            onClick={() => setKeyShift(0)}
+          >
+            원음
+          </button>
+          <button
+            className={keyShift > 0 ? "key-button active" : "key-button"}
+            type="button"
+            disabled={keyShift >= 8}
+            onClick={() => setKeyShift((value) => clamp(value + 1, -8, 8))}
+          >
+            {keyShift > 0 ? formatKeyShift(keyShift) : "반키↑"}
+          </button>
         </div>
         <button
           className={abLoop.start !== null ? "mini-toggle active" : "mini-toggle"}
