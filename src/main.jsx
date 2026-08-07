@@ -2664,10 +2664,6 @@ function KeyboardPanel() {
         <span>4옥타브</span>
       </div>
       <div className="instrument-section">
-        <div className="instrument-heading">
-          <h3>건반</h3>
-          <span>터치해서 연주</span>
-        </div>
       <div className="keyboard-stack">
         {octaves.map((octave, index) => (
           <div className="octave-row" key={octave}>
@@ -2736,10 +2732,6 @@ function DrumPanel() {
         <span>10개 패드</span>
       </div>
       <div className="instrument-section">
-        <div className="instrument-heading">
-          <h3>드럼</h3>
-          <span>패드를 눌러 연주</span>
-        </div>
         <div className="drum-pad-grid">
           {drumPads.map((pad) => (
             <button
