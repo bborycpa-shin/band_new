@@ -62,10 +62,11 @@ export async function loadSupabaseSheets() {
 
     return {
       sheets,
+      order: manifest.__scoreOrder ?? [],
       source: sheets.length ? "supabase" : "empty",
       error: ""
     };
   } catch (error) {
-    return { sheets: [], source: "empty", error: error.message };
+    return { sheets: [], order: [], source: "empty", error: error.message };
   }
 }

@@ -50,7 +50,7 @@ const tabs = [
   { key: "split", label: "분할", icon: SlidersHorizontal },
   { key: "score", label: "악보", icon: Download },
   { key: "album", label: "앨범", icon: Image },
-  { key: "member", label: "건반", icon: Music2 }
+  { key: "member", label: "악기", icon: Music2 }
 ];
 
 const rates = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
@@ -222,6 +222,7 @@ function App() {
   const [pendingSplitPlayId, setPendingSplitPlayId] = useState("");
   const [sheetFiles, setSheetFiles] = useState([]);
   const [sheetStatus, setSheetStatus] = useState("불러오는 중");
+  const [sheetOrder, setSheetOrder] = useState([]);
   const [albumFolders, setAlbumFolders] = useState([]);
   const [albumStatus, setAlbumStatus] = useState("불러오는 중");
   const [selectedAlbumId, setSelectedAlbumId] = useState("");
@@ -297,6 +298,7 @@ function App() {
   async function refreshSheetLibrary() {
     const result = await loadSupabaseSheets();
     setSheetFiles(result.sheets);
+    setSheetOrder(result.order ?? []);
     if (result.source === "supabase") {
       setSheetStatus(`악보 ${result.sheets.length}개`);
     } else {
@@ -698,6 +700,45 @@ function App() {
       );
     } catch (error) {
       setAppSongs(previousSongs);
+      window.alert(`순서 저장 실패: ${error.message}`);
+    }
+  }
+
+  async function reorderSplitSongs(fromIndex, toIndex) {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const previousSongs = splitSongs;
+    const reordered = [...splitSongs];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+    setSplitSongs(reordered);
+    setSelectedSplitId(moved.id);
+    try {
+      const bucket = supabaseConfig.buckets.split;
+      const manifest = await loadFileManifest(bucket);
+      manifest.__splitOrder = reordered
+        .map((song) => song.id)
+        .filter((id) => id && id !== "split-empty");
+      await saveFileManifest(bucket, manifest);
+    } catch (error) {
+      setSplitSongs(previousSongs);
+      window.alert(`순서 저장 실패: ${error.message}`);
+    }
+  }
+
+  async function reorderScoreRows(rowIds, fromIndex, toIndex) {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const previousOrder = sheetOrder;
+    const reordered = [...rowIds];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+    setSheetOrder(reordered);
+    try {
+      const bucket = supabaseConfig.buckets.score;
+      const manifest = await loadFileManifest(bucket);
+      manifest.__scoreOrder = reordered.filter(Boolean);
+      await saveFileManifest(bucket, manifest);
+    } catch (error) {
+      setSheetOrder(previousOrder);
       window.alert(`순서 저장 실패: ${error.message}`);
     }
   }
@@ -1200,16 +1241,19 @@ function App() {
             onUploadSplitTracks={uploadSplitTracks}
             onDeleteSplitTrack={deleteSplitTrack}
             onDeleteSplitSong={deleteSplitSong}
+            onReorderSplitSongs={reorderSplitSongs}
           />
         </div>
         {activeTab === "score" && (
           <ScorePanel
             sheets={sheetFiles}
             songs={appSongs}
+            scoreOrder={sheetOrder}
             sheetStatus={sheetStatus}
             isAdmin={isAdminMode}
             onUploadSheet={uploadSheetFile}
             onDeleteSheet={deleteSheetFile}
+            onReorderScoreRows={reorderScoreRows}
           />
         )}
         {activeTab === "album" && (
@@ -1229,7 +1273,7 @@ function App() {
             onDeleteAlbumPhoto={deleteAlbumPhoto}
           />
         )}
-        {activeTab === "member" && <KeyboardPanel />}
+        {activeTab === "member" && <InstrumentPanel />}
       </main>
 
       <PlayerBar
@@ -1738,9 +1782,11 @@ function SplitPanel({
   onUploadSplitTrack,
   onUploadSplitTracks,
   onDeleteSplitTrack,
-  onDeleteSplitSong
+  onDeleteSplitSong,
+  onReorderSplitSongs
 }) {
   const [expandedSongId, setExpandedSongId] = useState(selectedSong.id);
+  const selectedIndex = songs.findIndex((song) => song.id === selectedSong.id);
 
   function selectOrToggleSong(song) {
     onSelect(song);
@@ -1859,6 +1905,24 @@ function SplitPanel({
         <h2>분할 재생</h2>
         <div className="section-actions">
           <span>{libraryStatus}</span>
+          {isAdmin && <div className="playlist-order-actions" aria-label="Selected split song order">
+            <button
+              type="button"
+              title="선택한 분할곡 위로"
+              disabled={selectedIndex <= 0}
+              onClick={() => onReorderSplitSongs?.(selectedIndex, selectedIndex - 1)}
+            >
+              <ArrowUp size={15} />
+            </button>
+            <button
+              type="button"
+              title="선택한 분할곡 아래로"
+              disabled={selectedIndex === -1 || selectedIndex >= songs.length - 1}
+              onClick={() => onReorderSplitSongs?.(selectedIndex, selectedIndex + 1)}
+            >
+              <ArrowDown size={15} />
+            </button>
+          </div>}
           {isAdmin && <button className="mini-file-button text-file-button" type="button" onClick={onAddSplitSong}>
             분할곡 추가
           </button>}
@@ -1917,7 +1981,28 @@ function SplitPanel({
   );
 }
 
-function ScorePanel({ sheets, songs, sheetStatus, isAdmin, onUploadSheet, onDeleteSheet }) {
+function orderScoreRows(rows, order) {
+  if (!order?.length) return rows;
+  return [...rows].sort((a, b) => {
+    const ai = order.indexOf(a.id);
+    const bi = order.indexOf(b.id);
+    if (ai === -1 && bi === -1) return 0;
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+}
+
+function ScorePanel({
+  sheets,
+  songs,
+  scoreOrder,
+  sheetStatus,
+  isAdmin,
+  onUploadSheet,
+  onDeleteSheet,
+  onReorderScoreRows
+}) {
   const [expandedSongId, setExpandedSongId] = useState("");
   const sheetGroups = useMemo(() => {
     const groups = Object.fromEntries(songs.map((song) => [song.id, []]));
@@ -1935,7 +2020,7 @@ function ScorePanel({ sheets, songs, sheetStatus, isAdmin, onUploadSheet, onDele
     return { groups, extra };
   }, [sheets, songs]);
 
-  const scoreRows = songs.map((song) => ({
+  let scoreRows = songs.map((song) => ({
     id: song.id,
     title: song.title,
     sheets: sheetGroups.groups[song.id] ?? []
@@ -1949,12 +2034,34 @@ function ScorePanel({ sheets, songs, sheetStatus, isAdmin, onUploadSheet, onDele
     });
   }
 
+  scoreRows = orderScoreRows(scoreRows, scoreOrder);
+  const selectedIndex = scoreRows.findIndex((row) => row.id === expandedSongId);
+  const rowIds = scoreRows.map((row) => row.id);
+
   return (
     <section className="panel">
       <div className="section-title">
         <h2>악보</h2>
         <div className="section-actions">
           <span>{sheetStatus}</span>
+          {isAdmin && <div className="playlist-order-actions" aria-label="Selected score row order">
+            <button
+              type="button"
+              title="선택한 악보 목록 위로"
+              disabled={selectedIndex <= 0}
+              onClick={() => onReorderScoreRows?.(rowIds, selectedIndex, selectedIndex - 1)}
+            >
+              <ArrowUp size={15} />
+            </button>
+            <button
+              type="button"
+              title="선택한 악보 목록 아래로"
+              disabled={selectedIndex === -1 || selectedIndex >= scoreRows.length - 1}
+              onClick={() => onReorderScoreRows?.(rowIds, selectedIndex, selectedIndex + 1)}
+            >
+              <ArrowDown size={15} />
+            </button>
+          </div>}
         </div>
       </div>
 
@@ -2033,10 +2140,10 @@ function AlbumLockedPanel({ album, onUnlock }) {
       <div className="album-lock-box">
         <Lock size={28} />
         <h2>앨범 잠금</h2>
-        <p>{album?.title ? `${album.title} 폴더는 확인 질문을 맞힌 사람만 볼 수 있습니다.` : "앨범 사진은 확인 질문을 맞힌 사람만 볼 수 있습니다."}</p>
         <button type="button" onClick={onUnlock}>
           폴더 열람하기
         </button>
+        <p>{album?.title ? `${album.title} 폴더는 확인 질문을 맞힌 사람만 볼 수 있습니다.` : "앨범 사진은 확인 질문을 맞힌 사람만 볼 수 있습니다."}</p>
       </div>
     </div>
   );
@@ -2326,13 +2433,38 @@ function noteFrequency(note, octave) {
   return 440 * 2 ** ((midi - 69) / 12);
 }
 
-function playPianoTone(note, octave) {
+function getInstrumentAudioContext() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return;
 
-  const context = playPianoTone.context ?? new AudioContext();
-  playPianoTone.context = context;
+  const context = getInstrumentAudioContext.context ?? new AudioContext();
+  getInstrumentAudioContext.context = context;
   if (context.state === "suspended") context.resume().catch(() => {});
+  return context;
+}
+
+function getInstrumentOutput(context) {
+  if (!getInstrumentOutput.output || getInstrumentOutput.context !== context) {
+    const master = context.createGain();
+    const compressor = context.createDynamicsCompressor();
+    master.gain.setValueAtTime(2.55, context.currentTime);
+    compressor.threshold.setValueAtTime(-12, context.currentTime);
+    compressor.knee.setValueAtTime(18, context.currentTime);
+    compressor.ratio.setValueAtTime(5, context.currentTime);
+    compressor.attack.setValueAtTime(0.003, context.currentTime);
+    compressor.release.setValueAtTime(0.18, context.currentTime);
+    master.connect(compressor);
+    compressor.connect(context.destination);
+    getInstrumentOutput.context = context;
+    getInstrumentOutput.output = master;
+  }
+  return getInstrumentOutput.output;
+}
+
+function playPianoTone(note, octave) {
+  const context = getInstrumentAudioContext();
+  if (!context) return;
+  const output = getInstrumentOutput(context);
 
   const now = context.currentTime;
   const frequency = noteFrequency(note, octave);
@@ -2345,20 +2477,119 @@ function playPianoTone(note, octave) {
   tone.type = "lowpass";
   tone.frequency.setValueAtTime(2200, now);
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.32, now + 0.012);
-  gain.gain.exponentialRampToValueAtTime(0.14, now + 0.16);
+  gain.gain.exponentialRampToValueAtTime(0.74, now + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.32, now + 0.16);
   gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.9);
 
   oscillator.connect(tone);
   tone.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(output);
   oscillator.start(now);
   oscillator.stop(now + 0.95);
 }
 
-function KeyboardPanel() {
+function createNoiseBuffer(context, length = 0.22) {
+  const sampleCount = Math.floor(context.sampleRate * length);
+  const buffer = context.createBuffer(1, sampleCount, context.sampleRate);
+  const output = buffer.getChannelData(0);
+  for (let i = 0; i < sampleCount; i += 1) {
+    output[i] = Math.random() * 2 - 1;
+  }
+  return buffer;
+}
+
+const drumPads = [
+  { key: "kick", label: "킥", sub: "Kick" },
+  { key: "hat", label: "하이햇", sub: "Hi-Hat" },
+  { key: "snare", label: "스네어", sub: "Snare" },
+  { key: "highTom", label: "하이탐", sub: "High Tom" },
+  { key: "midTom", label: "미드탐", sub: "Mid Tom" },
+  { key: "lowTom", label: "로우탐", sub: "Low Tom" },
+  { key: "clap", label: "클랩", sub: "Clap" },
+  { key: "crash", label: "크래시", sub: "Crash" }
+];
+
+const tomSettings = {
+  highTom: { start: 285, end: 155, filter: 620 },
+  midTom: { start: 215, end: 105, filter: 470 },
+  lowTom: { start: 155, end: 68, filter: 330 }
+};
+
+function playDrumSound(type) {
+  const context = getInstrumentAudioContext();
+  if (!context) return;
+
+  const now = context.currentTime;
+  const destination = getInstrumentOutput(context);
+
+  if (type === "kick") {
+    const osc = context.createOscillator();
+    const gain = context.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(135, now);
+    osc.frequency.exponentialRampToValueAtTime(42, now + 0.16);
+    gain.gain.setValueAtTime(1.72, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+    osc.connect(gain);
+    gain.connect(destination);
+    osc.start(now);
+    osc.stop(now + 0.34);
+    return;
+  }
+
+  const noise = context.createBufferSource();
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  noise.buffer = createNoiseBuffer(context, type === "crash" ? 0.8 : 0.25);
+
+  if (type === "snare" || type === "clap") {
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(type === "clap" ? 1600 : 1800, now);
+    gain.gain.setValueAtTime(type === "clap" ? 0.98 : 1.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + (type === "clap" ? 0.18 : 0.24));
+  } else if (type === "hat") {
+    filter.type = "highpass";
+    filter.frequency.setValueAtTime(7200, now);
+    gain.gain.setValueAtTime(0.78, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+  } else if (type === "crash") {
+    filter.type = "highpass";
+    filter.frequency.setValueAtTime(3600, now);
+    gain.gain.setValueAtTime(1.02, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.72);
+  } else {
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(tomSettings[type]?.filter ?? 420, now);
+    gain.gain.setValueAtTime(1.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+  }
+
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(destination);
+  noise.start(now);
+  noise.stop(now + (type === "crash" ? 0.8 : 0.28));
+
+  if (tomSettings[type]) {
+    const tom = tomSettings[type];
+    const osc = context.createOscillator();
+    const oscGain = context.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(tom.start, now);
+    osc.frequency.exponentialRampToValueAtTime(tom.end, now + 0.24);
+    oscGain.gain.setValueAtTime(0.86, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+    osc.connect(oscGain);
+    oscGain.connect(destination);
+    osc.start(now);
+    osc.stop(now + 0.32);
+  }
+}
+
+function InstrumentPanel() {
   const octaves = [3, 4, 5, 6];
   const [activeKeys, setActiveKeys] = useState(() => new Set());
+  const [activeDrum, setActiveDrum] = useState("");
 
   function pressKey(note, octave) {
     const id = `${note}-${octave}`;
@@ -2375,12 +2606,25 @@ function KeyboardPanel() {
     });
   }
 
+  function hitDrum(type) {
+    setActiveDrum(type);
+    playDrumSound(type);
+    window.setTimeout(() => {
+      setActiveDrum((current) => (current === type ? "" : current));
+    }, 120);
+  }
+
   return (
     <section className="panel keyboard-panel">
       <div className="section-title">
-        <h2>건반</h2>
-        <span>4옥타브</span>
+        <h2>악기</h2>
+        <span>건반 4옥타브 · 드럼</span>
       </div>
+      <div className="instrument-section">
+        <div className="instrument-heading">
+          <h3>건반</h3>
+          <span>터치해서 연주</span>
+        </div>
       <div className="keyboard-stack">
         {octaves.map((octave, index) => (
           <div className="octave-row" key={octave}>
@@ -2425,6 +2669,29 @@ function KeyboardPanel() {
             </div>
           </div>
         ))}
+      </div>
+      </div>
+      <div className="instrument-section">
+        <div className="instrument-heading">
+          <h3>드럼</h3>
+          <span>패드를 눌러 연주</span>
+        </div>
+        <div className="drum-pad-grid">
+          {drumPads.map((pad) => (
+            <button
+              key={pad.key}
+              className={activeDrum === pad.key ? "drum-pad active" : "drum-pad"}
+              type="button"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                hitDrum(pad.key);
+              }}
+            >
+              <span>{pad.label}</span>
+              <small>{pad.sub}</small>
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );
