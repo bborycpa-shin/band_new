@@ -2,7 +2,7 @@ import { instruments } from "../data/songs";
 import { loadFileManifest, manifestFolder, manifestPath } from "./fileManifest";
 import { supabase, supabaseConfig } from "./supabase";
 
-const audioExtensions = [".mp3", ".wav", ".m4a", ".ogg", ".flac"];
+const audioExtensions = [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm"];
 
 function hasAudioExtension(path) {
   return audioExtensions.some((extension) => path.toLowerCase().endsWith(extension));
