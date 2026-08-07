@@ -60,6 +60,14 @@ const defaultAlbumQuestion = "2026년 여름공연시 베이스기타 멤버이�
 const defaultAlbumAnswer = "손상이";
 const albumPageSize = 20;
 
+function todayKey() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function formatTime(seconds) {
   if (!Number.isFinite(seconds)) return "0:00";
   const min = Math.floor(seconds / 60);
@@ -1097,7 +1105,7 @@ function App() {
     const answer = window.prompt(question);
     if (answer === null) return;
     if (answer.trim() === expectedAnswer) {
-      localStorage.setItem(`${albumAccessKeyPrefix}${album.id}`, "true");
+      localStorage.setItem(`${albumAccessKeyPrefix}${album.id}`, todayKey());
       setUnlockedAlbumIds((current) => new Set([...current, album.id]));
       return;
     }
@@ -2062,7 +2070,7 @@ function AlbumPanel({
     isAdmin ||
     selectedAlbum.id === "album-empty" ||
     unlockedAlbumIds?.has(selectedAlbum.id) ||
-    localStorage.getItem(`${albumAccessKeyPrefix}${selectedAlbum.id}`) === "true";
+    localStorage.getItem(`${albumAccessKeyPrefix}${selectedAlbum.id}`) === todayKey();
 
   useEffect(() => {
     setViewerIndex(null);
@@ -2137,6 +2145,14 @@ function AlbumPanel({
                     onClick={() => onRenameAlbumFolder?.(album)}
                   >
                     <Pencil size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    title="열람 질문/정답 변경"
+                    disabled={album.id === "album-empty"}
+                    onClick={() => onUpdateAlbumAccess?.(album)}
+                  >
+                    <Lock size={15} />
                   </button>
                 </div>
               )}
@@ -2342,6 +2358,22 @@ function playPianoTone(note, octave) {
 
 function KeyboardPanel() {
   const octaves = [3, 4, 5, 6];
+  const [activeKeys, setActiveKeys] = useState(() => new Set());
+
+  function pressKey(note, octave) {
+    const id = `${note}-${octave}`;
+    setActiveKeys((current) => new Set([...current, id]));
+    playPianoTone(note, octave);
+  }
+
+  function releaseKey(note, octave) {
+    const id = `${note}-${octave}`;
+    setActiveKeys((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  }
 
   return (
     <section className="panel keyboard-panel">
@@ -2357,29 +2389,36 @@ function KeyboardPanel() {
               <div className="white-key-row">
                 {whiteKeys.map((key) => (
                   <button
-                    className="piano-key white-key"
+                    className={activeKeys.has(`${key.note}-${octave}`) ? "piano-key white-key pressed" : "piano-key white-key"}
                     key={key.note}
                     type="button"
-                    onPointerDown={() => playPianoTone(key.note, octave)}
+                    onPointerDown={() => pressKey(key.note, octave)}
+                    onPointerUp={() => releaseKey(key.note, octave)}
+                    onPointerCancel={() => releaseKey(key.note, octave)}
+                    onPointerLeave={() => releaseKey(key.note, octave)}
                   >
                     <span>{key.label}</span>
                     <small>{key.note}{index + 1}</small>
                   </button>
                 ))}
               </div>
-              <div className="black-key-row" aria-hidden="true">
+              <div className="black-key-row">
                 {blackKeys.map((key) => (
                   <button
-                    className="piano-key black-key"
+                    className={activeKeys.has(`${key.note}-${octave}`) ? "piano-key black-key pressed" : "piano-key black-key"}
                     key={key.note}
                     type="button"
                     style={{ left: `${(key.left / 7) * 100}%` }}
                     onPointerDown={(event) => {
                       event.preventDefault();
-                      playPianoTone(key.note, octave);
+                      pressKey(key.note, octave);
                     }}
+                    onPointerUp={() => releaseKey(key.note, octave)}
+                    onPointerCancel={() => releaseKey(key.note, octave)}
+                    onPointerLeave={() => releaseKey(key.note, octave)}
                   >
                     <span>{key.label}</span>
+                    <small>{key.note}</small>
                   </button>
                 ))}
               </div>
