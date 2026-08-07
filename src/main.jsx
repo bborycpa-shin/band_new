@@ -872,7 +872,7 @@ function App() {
       const fileName = uniqueJpegFileName(file);
       const path = `${album.id}/${fileName}`;
       const thumbnailPath = `${album.id}/.thumbs/${fileName}`;
-      const displayImage = await resizeImageFile(file, { maxSize: 2200, quality: 0.82, name: fileName });
+      const displayImage = await resizeImageFile(file, { maxSize: 1200, quality: 0.75, name: fileName });
       const thumbnail = await resizeImageFile(file, { maxSize: 360, quality: 0.72, name: fileName });
       const { error } = await supabase.storage.from(bucket).upload(path, displayImage, {
         cacheControl: "3600",
