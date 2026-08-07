@@ -26,7 +26,8 @@ import {
   Unlock,
   Volume2,
   VolumeX,
-  X
+  X,
+  Drum
 } from "lucide-react";
 import { supabase, supabaseConfig } from "./lib/supabase";
 import {
@@ -50,7 +51,8 @@ const tabs = [
   { key: "split", label: "분할", icon: SlidersHorizontal },
   { key: "score", label: "악보", icon: Download },
   { key: "album", label: "앨범", icon: Image },
-  { key: "member", label: "악기", icon: Music2 }
+  { key: "member", label: "건반", icon: Music2 },
+  { key: "drum", label: "드럼", icon: Drum }
 ];
 
 const rates = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
@@ -1273,7 +1275,8 @@ function App() {
             onDeleteAlbumPhoto={deleteAlbumPhoto}
           />
         )}
-        {activeTab === "member" && <InstrumentPanel />}
+        {activeTab === "member" && <KeyboardPanel />}
+        {activeTab === "drum" && <DrumPanel />}
       </main>
 
       <PlayerBar
@@ -2503,9 +2506,9 @@ const drumPads = [
   { key: "hat", label: "하이햇", sub: "Hi-Hat" },
   { key: "snare", label: "스네어", sub: "Snare" },
   { key: "highTom", label: "하이탐", sub: "High Tom" },
-  { key: "midTom", label: "미드탐", sub: "Mid Tom" },
   { key: "lowTom", label: "로우탐", sub: "Low Tom" },
-  { key: "clap", label: "클랩", sub: "Clap" },
+  { key: "midTom", label: "미드탐", sub: "Mid Tom" },
+  { key: "rimshot", label: "림샷", sub: "Rimshot" },
   { key: "crash", label: "크래시", sub: "Crash" }
 ];
 
@@ -2525,15 +2528,31 @@ function playDrumSound(type) {
   if (type === "kick") {
     const osc = context.createOscillator();
     const gain = context.createGain();
+    const click = context.createBufferSource();
+    const clickFilter = context.createBiquadFilter();
+    const clickGain = context.createGain();
+
     osc.type = "sine";
-    osc.frequency.setValueAtTime(135, now);
-    osc.frequency.exponentialRampToValueAtTime(42, now + 0.16);
-    gain.gain.setValueAtTime(1.72, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+    osc.frequency.setValueAtTime(158, now);
+    osc.frequency.exponentialRampToValueAtTime(58, now + 0.13);
+    gain.gain.setValueAtTime(1.85, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.26);
     osc.connect(gain);
     gain.connect(destination);
+
+    click.buffer = createNoiseBuffer(context, 0.035);
+    clickFilter.type = "highpass";
+    clickFilter.frequency.setValueAtTime(2100, now);
+    clickGain.gain.setValueAtTime(0.68, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.035);
+    click.connect(clickFilter);
+    clickFilter.connect(clickGain);
+    clickGain.connect(destination);
+
     osc.start(now);
-    osc.stop(now + 0.34);
+    click.start(now);
+    osc.stop(now + 0.28);
+    click.stop(now + 0.04);
     return;
   }
 
@@ -2542,11 +2561,11 @@ function playDrumSound(type) {
   const gain = context.createGain();
   noise.buffer = createNoiseBuffer(context, type === "crash" ? 0.8 : 0.25);
 
-  if (type === "snare" || type === "clap") {
+  if (type === "snare" || type === "rimshot") {
     filter.type = "bandpass";
-    filter.frequency.setValueAtTime(type === "clap" ? 1600 : 1800, now);
-    gain.gain.setValueAtTime(type === "clap" ? 0.98 : 1.12, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + (type === "clap" ? 0.18 : 0.24));
+    filter.frequency.setValueAtTime(type === "rimshot" ? 2600 : 1800, now);
+    gain.gain.setValueAtTime(type === "rimshot" ? 0.9 : 1.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + (type === "rimshot" ? 0.09 : 0.24));
   } else if (type === "hat") {
     filter.type = "highpass";
     filter.frequency.setValueAtTime(7200, now);
@@ -2570,6 +2589,19 @@ function playDrumSound(type) {
   noise.start(now);
   noise.stop(now + (type === "crash" ? 0.8 : 0.28));
 
+  if (type === "rimshot") {
+    const stick = context.createOscillator();
+    const stickGain = context.createGain();
+    stick.type = "square";
+    stick.frequency.setValueAtTime(920, now);
+    stickGain.gain.setValueAtTime(0.52, now);
+    stickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+    stick.connect(stickGain);
+    stickGain.connect(destination);
+    stick.start(now);
+    stick.stop(now + 0.06);
+  }
+
   if (tomSettings[type]) {
     const tom = tomSettings[type];
     const osc = context.createOscillator();
@@ -2586,10 +2618,9 @@ function playDrumSound(type) {
   }
 }
 
-function InstrumentPanel() {
+function KeyboardPanel() {
   const octaves = [3, 4, 5, 6];
   const [activeKeys, setActiveKeys] = useState(() => new Set());
-  const [activeDrum, setActiveDrum] = useState("");
 
   function pressKey(note, octave) {
     const id = `${note}-${octave}`;
@@ -2606,19 +2637,11 @@ function InstrumentPanel() {
     });
   }
 
-  function hitDrum(type) {
-    setActiveDrum(type);
-    playDrumSound(type);
-    window.setTimeout(() => {
-      setActiveDrum((current) => (current === type ? "" : current));
-    }, 120);
-  }
-
   return (
     <section className="panel keyboard-panel">
       <div className="section-title">
-        <h2>악기</h2>
-        <span>건반 4옥타브 · 드럼</span>
+        <h2>건반</h2>
+        <span>4옥타브</span>
       </div>
       <div className="instrument-section">
         <div className="instrument-heading">
@@ -2670,6 +2693,27 @@ function InstrumentPanel() {
           </div>
         ))}
       </div>
+      </div>
+    </section>
+  );
+}
+
+function DrumPanel() {
+  const [activeDrum, setActiveDrum] = useState("");
+
+  function hitDrum(type) {
+    setActiveDrum(type);
+    playDrumSound(type);
+    window.setTimeout(() => {
+      setActiveDrum((current) => (current === type ? "" : current));
+    }, 120);
+  }
+
+  return (
+    <section className="panel keyboard-panel">
+      <div className="section-title">
+        <h2>드럼</h2>
+        <span>8개 패드</span>
       </div>
       <div className="instrument-section">
         <div className="instrument-heading">
