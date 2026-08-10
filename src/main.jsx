@@ -103,6 +103,15 @@ function applyPlaybackSettings(audio, rate, keyShift) {
   audio.webkitPreservesPitch = preservePitch;
 }
 
+function shouldIgnoreKeyboardShortcut(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest(
+      "input, textarea, select, [contenteditable='true'], [role='slider'], [role='textbox']"
+    )
+  );
+}
+
 async function hashText(value) {
   const data = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", data);
@@ -504,6 +513,29 @@ function App() {
     await Promise.allSettled(activeAudios.map((audio) => audio.play()));
     setIsPlaying(true);
   }
+
+  useEffect(() => {
+    const handleKeyboardShortcut = (event) => {
+      const isSpace = event.code === "Space" || event.key === " ";
+      const isSeekBack = event.code === "ArrowLeft" || event.key === "ArrowLeft";
+      const isSeekForward = event.code === "ArrowRight" || event.key === "ArrowRight";
+      if (!isSpace && !isSeekBack && !isSeekForward) return;
+      if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+      if (shouldIgnoreKeyboardShortcut(event.target)) return;
+
+      event.preventDefault();
+
+      if (isSpace) {
+        togglePlay().catch(() => {});
+        return;
+      }
+
+      seekBy(isSeekBack ? -5 : 5);
+    };
+
+    window.addEventListener("keydown", handleKeyboardShortcut);
+    return () => window.removeEventListener("keydown", handleKeyboardShortcut);
+  });
 
   async function playSplitSong(song) {
     setSelectedSplitId(song.id);
