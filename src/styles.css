@@ -1518,9 +1518,13 @@ input[type="range"]::-webkit-slider-thumb {
 
 .key-control {
   display: inline-grid;
-  grid-template-columns: repeat(3, minmax(44px, auto));
+  grid-template-columns: repeat(3, minmax(38px, auto));
   align-items: center;
   gap: 4px;
+}
+
+.key-readout {
+  min-width: 44px;
 }
 
 .key-button {
@@ -1567,9 +1571,9 @@ input[type="range"]::-webkit-slider-thumb {
 
 .transport {
   display: grid;
-  grid-template-columns: 34px 1fr 1fr 1fr 58px 1fr 1fr 1fr 34px;
+  grid-template-columns: 34px 34px repeat(3, minmax(36px, 1fr)) 58px repeat(3, minmax(36px, 1fr)) 34px 48px;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
 }
 
 .transport button {
@@ -1583,10 +1587,17 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .transport button:first-child,
-.transport button:last-child {
+.transport button:nth-child(2),
+.transport button:nth-last-child(2) {
   justify-self: center;
   width: 34px;
   padding: 0;
+}
+
+.transport button:last-child {
+  justify-self: center;
+  min-width: 46px;
+  padding: 0 5px;
 }
 
 .transport .play-button {
@@ -1899,8 +1910,12 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .key-control {
-    grid-template-columns: repeat(3, minmax(34px, auto));
+    grid-template-columns: repeat(3, minmax(32px, auto));
     gap: 3px;
+  }
+
+  .key-readout {
+    min-width: 38px;
   }
 
   .key-button {
@@ -1910,7 +1925,7 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .transport {
-    grid-template-columns: 32px repeat(3, minmax(28px, 1fr)) 50px repeat(3, minmax(28px, 1fr)) 32px;
+    grid-template-columns: 28px 28px repeat(3, minmax(26px, 1fr)) 50px repeat(3, minmax(26px, 1fr)) 28px 42px;
     gap: 2px;
   }
 

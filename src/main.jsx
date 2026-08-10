@@ -56,6 +56,13 @@ const tabs = [
 ];
 
 const rates = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
+const playSequenceModes = ["list-once", "list-repeat", "song-once", "song-repeat"];
+const playSequenceLabels = {
+  "list-once": "\ubaa9\ub85d",
+  "list-repeat": "\ubaa9\ub85d\u21bb",
+  "song-once": "1\ud68c",
+  "song-repeat": "1\uace1\u21bb"
+};
 const adminPasswordHashKey = "band-admin-password-hash";
 const albumAccessKeyPrefix = "band-album-access-unlocked:";
 const defaultAlbumQuestion = "2026년 여름공연시 베이스기타 멤버이름은?(Hint:손**)";
@@ -237,6 +244,7 @@ function App() {
   const [rate, setRate] = useState(1);
   const [keyShift, setKeyShift] = useState(0);
   const [volume, setVolume] = useState(0.7);
+  const [playSequenceMode, setPlaySequenceMode] = useState("list-once");
   const [abLoop, setAbLoop] = useState({ start: null, end: null });
   const [installPrompt, setInstallPrompt] = useState(null);
   const [isStandaloneApp, setIsStandaloneApp] = useState(
@@ -563,6 +571,99 @@ function App() {
     const currentIndex = appSongs.findIndex((song) => song.id === selectedSong.id);
     const nextIndex = (currentIndex + offset + appSongs.length) % appSongs.length;
     setSelectedId(appSongs[nextIndex].id);
+  }
+
+  function cyclePlaySequenceMode() {
+    setPlaySequenceMode((current) => {
+      const currentIndex = playSequenceModes.indexOf(current);
+      return playSequenceModes[(currentIndex + 1) % playSequenceModes.length];
+    });
+  }
+
+  async function restartCurrent() {
+    if (currentPlayerMode() === "split") {
+      const activeAudios = instruments
+        .map((instrument) => splitRefs.current[instrument.key])
+        .filter((audio) => audio?.currentSrc || audio?.src);
+
+      if (!activeAudios.length) return;
+
+      pauseMainAudio();
+      setPlaybackMode("split");
+      activeAudios.forEach((audio) => {
+        audio.currentTime = 0;
+        applyPlaybackSettings(audio, rate, keyShift);
+        audio.volume = splitMuted[audio.dataset.instrument] ? 0 : splitVolumes[audio.dataset.instrument] ?? 0.7;
+      });
+      setCurrentTime(0);
+      await Promise.allSettled(activeAudios.map((audio) => audio.play()));
+      setIsPlaying(true);
+      return;
+    }
+
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    pauseSplitTracks();
+    setPlaybackMode("play");
+    audio.currentTime = 0;
+    applyPlaybackSettings(audio, rate, keyShift);
+    await audio.play().catch(() => {});
+    setIsPlaying(true);
+  }
+
+  function handleMainAudioEnded() {
+    if (playSequenceMode === "song-repeat") {
+      restartCurrent();
+      return;
+    }
+
+    const currentIndex = appSongs.findIndex((song) => song.id === selectedSong.id);
+    const hasNextSong = currentIndex >= 0 && currentIndex < appSongs.length - 1;
+
+    if (playSequenceMode === "list-once" && hasNextSong) {
+      const nextSong = appSongs[currentIndex + 1];
+      setSelectedId(nextSong.id);
+      setPendingPlayId(nextSong.id);
+      return;
+    }
+
+    if (playSequenceMode === "list-repeat" && appSongs.length) {
+      const nextSong = appSongs[hasNextSong ? currentIndex + 1 : 0];
+      setSelectedId(nextSong.id);
+      setPendingPlayId(nextSong.id);
+      return;
+    }
+
+    setIsPlaying(false);
+  }
+
+  function handleSplitAudioEnded(instrumentKey) {
+    if (instrumentKey !== "vocal") return;
+
+    if (playSequenceMode === "song-repeat") {
+      restartCurrent();
+      return;
+    }
+
+    const currentIndex = splitSongs.findIndex((song) => song.id === selectedSplitSong.id);
+    const hasNextSong = currentIndex >= 0 && currentIndex < splitSongs.length - 1;
+
+    if (playSequenceMode === "list-once" && hasNextSong) {
+      const nextSong = splitSongs[currentIndex + 1];
+      setSelectedSplitId(nextSong.id);
+      setPendingSplitPlayId(nextSong.id);
+      return;
+    }
+
+    if (playSequenceMode === "list-repeat" && splitSongs.length) {
+      const nextSong = splitSongs[hasNextSong ? currentIndex + 1 : 0];
+      setSelectedSplitId(nextSong.id);
+      setPendingSplitPlayId(nextSong.id);
+      return;
+    }
+
+    setIsPlaying(false);
   }
 
   function markAbLoop() {
@@ -1236,6 +1337,7 @@ function App() {
             setCurrentTime={handleTrackedTime}
             setDuration={setDuration}
             setIsPlaying={setIsPlaying}
+            onSplitAudioEnded={handleSplitAudioEnded}
             onAddSplitSong={addSplitSong}
             onPlaySplitSong={playSplitSong}
             onRenameSplitSong={renameSplitSong}
@@ -1301,6 +1403,10 @@ function App() {
         seekBy={seekBy}
         seekTo={seekTo}
         moveSong={moveSong}
+        restartCurrent={restartCurrent}
+        playSequenceMode={playSequenceMode}
+        cyclePlaySequenceMode={cyclePlaySequenceMode}
+        onEnded={handleMainAudioEnded}
       />
     </div>
   );
@@ -1779,6 +1885,7 @@ function SplitPanel({
   setCurrentTime,
   setDuration,
   setIsPlaying,
+  onSplitAudioEnded,
   onAddSplitSong,
   onPlaySplitSong,
   onRenameSplitSong,
@@ -1815,7 +1922,7 @@ function SplitPanel({
         onTimeUpdate={(event) => {
           if (instrument.key === "vocal") setCurrentTime(event.currentTarget.currentTime);
         }}
-        onEnded={() => setIsPlaying(false)}
+        onEnded={() => onSplitAudioEnded?.(instrument.key)}
       />
     ));
 
@@ -2775,7 +2882,11 @@ function PlayerBar({
   togglePlay,
   seekBy,
   seekTo,
-  moveSong
+  moveSong,
+  restartCurrent,
+  playSequenceMode,
+  cyclePlaySequenceMode,
+  onEnded
 }) {
   const abStartPercent =
     abLoop.start !== null && duration ? clamp((abLoop.start / duration) * 100, 0, 100) : null;
@@ -2790,7 +2901,7 @@ function PlayerBar({
         preload="metadata"
         onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
         onTimeUpdate={(event) => handleTrackedTime(event.currentTarget.currentTime)}
-        onEnded={() => setIsPlaying(false)}
+        onEnded={onEnded}
       />
       <div className="player-head">
         <div className="player-title">
@@ -2854,27 +2965,30 @@ function PlayerBar({
         <span>{Math.round(volume * 100)}%</span>
         <div className="key-control" aria-label="Key control">
           <button
-            className={keyShift < 0 ? "key-button active" : "key-button"}
+            className="key-button"
             type="button"
+            title="반음 낮추기"
             disabled={keyShift <= -8}
             onClick={() => setKeyShift((value) => clamp(value - 1, -8, 8))}
           >
-            {keyShift < 0 ? formatKeyShift(keyShift) : "반키↓"}
+            {"\u266d"}
           </button>
           <button
-            className={keyShift === 0 ? "key-button active" : "key-button"}
+            className={keyShift === 0 ? "key-button active key-readout" : "key-button key-readout"}
             type="button"
+            title="원음으로"
             onClick={() => setKeyShift(0)}
           >
-            원음
+            {keyShift > 0 ? `+${keyShift}` : `${keyShift}`}
           </button>
           <button
-            className={keyShift > 0 ? "key-button active" : "key-button"}
+            className="key-button"
             type="button"
+            title="반음 올리기"
             disabled={keyShift >= 8}
             onClick={() => setKeyShift((value) => clamp(value + 1, -8, 8))}
           >
-            {keyShift > 0 ? formatKeyShift(keyShift) : "반키↑"}
+            #
           </button>
         </div>
         <button
@@ -2888,6 +3002,9 @@ function PlayerBar({
       </div>
 
       <div className="transport">
+        <button title="처음부터 다시 재생" onClick={restartCurrent}>
+          {"\u21ba"}
+        </button>
         <button title="이전 곡" onClick={() => moveSong(-1)}>
           <SkipBack size={22} />
         </button>
@@ -2906,6 +3023,9 @@ function PlayerBar({
         <button onClick={() => seekBy(10)}>+10s</button>
         <button title="다음 곡" onClick={() => moveSong(1)}>
           <SkipForward size={22} />
+        </button>
+        <button title="재생 방식 전환" onClick={cyclePlaySequenceMode}>
+          {playSequenceLabels[playSequenceMode] ?? playSequenceLabels["list-once"]}
         </button>
       </div>
     </footer>
