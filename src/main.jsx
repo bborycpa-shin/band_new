@@ -58,9 +58,9 @@ const tabs = [
 const rates = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
 const playSequenceModes = ["list-once", "list-repeat", "song-once", "song-repeat"];
 const playSequenceLabels = {
-  "list-once": "\ubaa9\ub85d",
-  "list-repeat": "\ubaa9\ub85d\u21bb",
-  "song-once": "1\ud68c",
+  "list-once": "\uc804\uace1",
+  "list-repeat": "\uc804\uace1\u21bb",
+  "song-once": "1\uace1",
   "song-repeat": "1\uace1\u21bb"
 };
 const adminPasswordHashKey = "band-admin-password-hash";
@@ -2912,31 +2912,39 @@ function PlayerBar({
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
       </div>
-      <div className="seek-wrap">
-        {abStartPercent !== null && (
-          <span className="ab-marker ab-start" style={{ left: `${abStartPercent}%` }} title="A 지점" />
-        )}
-        {abEndPercent !== null && (
-          <span className="ab-marker ab-end" style={{ left: `${abEndPercent}%` }} title="B 지점" />
-        )}
-        {abStartPercent !== null && abEndPercent !== null && (
-          <span
-            className="ab-range"
-            style={{
-              left: `${Math.min(abStartPercent, abEndPercent)}%`,
-              width: `${Math.abs(abEndPercent - abStartPercent)}%`
-            }}
+      <div className="timeline-row">
+        <button className="timeline-button" title="처음부터 다시 재생" onClick={restartCurrent}>
+          {"\u21ba"}
+        </button>
+        <div className="seek-wrap">
+          {abStartPercent !== null && (
+            <span className="ab-marker ab-start" style={{ left: `${abStartPercent}%` }} title="A 지점" />
+          )}
+          {abEndPercent !== null && (
+            <span className="ab-marker ab-end" style={{ left: `${abEndPercent}%` }} title="B 지점" />
+          )}
+          {abStartPercent !== null && abEndPercent !== null && (
+            <span
+              className="ab-range"
+              style={{
+                left: `${Math.min(abStartPercent, abEndPercent)}%`,
+                width: `${Math.abs(abEndPercent - abStartPercent)}%`
+              }}
+            />
+          )}
+          <input
+            className="seek"
+            type="range"
+            min="0"
+            max={duration || 0}
+            step="0.1"
+            value={Math.min(currentTime, duration || 0)}
+            onChange={(event) => seekTo(event.target.value)}
           />
-        )}
-        <input
-          className="seek"
-          type="range"
-          min="0"
-          max={duration || 0}
-          step="0.1"
-          value={Math.min(currentTime, duration || 0)}
-          onChange={(event) => seekTo(event.target.value)}
-        />
+        </div>
+        <button className="timeline-button play-sequence-button" title="재생 방식 전환" onClick={cyclePlaySequenceMode}>
+          {playSequenceLabels[playSequenceMode] ?? playSequenceLabels["list-once"]}
+        </button>
       </div>
 
       <div className="rate-row">
@@ -3002,9 +3010,6 @@ function PlayerBar({
       </div>
 
       <div className="transport">
-        <button title="처음부터 다시 재생" onClick={restartCurrent}>
-          {"\u21ba"}
-        </button>
         <button title="이전 곡" onClick={() => moveSong(-1)}>
           <SkipBack size={22} />
         </button>
@@ -3023,9 +3028,6 @@ function PlayerBar({
         <button onClick={() => seekBy(10)}>+10s</button>
         <button title="다음 곡" onClick={() => moveSong(1)}>
           <SkipForward size={22} />
-        </button>
-        <button title="재생 방식 전환" onClick={cyclePlaySequenceMode}>
-          {playSequenceLabels[playSequenceMode] ?? playSequenceLabels["list-once"]}
         </button>
       </div>
     </footer>
