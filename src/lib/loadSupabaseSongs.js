@@ -77,6 +77,7 @@ export async function loadSupabaseSongs() {
         artist: "",
         audioPath: path,
         audioUrl: publicUrl(audioBucket, path),
+        lyrics: audioManifest[path]?.lyrics || "",
         splitTrackPaths: {},
         splitTracks: {},
         scores: [],

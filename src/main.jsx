@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Download,
+  FileText,
   Image,
   ListMusic,
   Lock,
@@ -162,6 +163,7 @@ const emptySong = {
   artist: "",
   audioPath: "",
   audioUrl: "",
+  lyrics: "",
   splitTrackPaths: Object.fromEntries(instruments.map((instrument) => [instrument.key, ""])),
   splitTracks: Object.fromEntries(instruments.map((instrument) => [instrument.key, ""])),
   scores: [],
@@ -279,6 +281,7 @@ function App() {
     return cachedCount ? `사진 폴더 ${cachedCount}개` : "불러오는 중";
   });
   const [selectedAlbumId, setSelectedAlbumId] = useState("");
+  const [lyricsSongId, setLyricsSongId] = useState("");
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [unlockedAlbumIds, setUnlockedAlbumIds] = useState(() => new Set());
   const [isPlaying, setIsPlaying] = useState(false);
@@ -428,12 +431,22 @@ function App() {
   }, [rate, keyShift, splitVolumes, splitMuted, selectedSplitSong]);
 
   useEffect(() => {
+    if (activeTab === "split" && playbackMode !== "play") return;
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
     setAbLoop({ start: null, end: null });
     setKeyShift(0);
-  }, [selectedId, selectedSplitId]);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (activeTab !== "split" && playbackMode !== "split") return;
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setAbLoop({ start: null, end: null });
+    setKeyShift(0);
+  }, [selectedSplitId]);
 
   useEffect(() => {
     if (!pendingPlayId || pendingPlayId !== selectedSong.id || !selectedSong.audioUrl) return;
@@ -503,6 +516,20 @@ function App() {
 
   function switchTab(nextTab) {
     setActiveTab(nextTab);
+    if (isPlaying) return;
+
+    if (nextTab === "split") {
+      const vocalAudio = splitRefs.current.vocal;
+      setPlaybackMode("split");
+      setCurrentTime(vocalAudio?.currentTime || 0);
+      setDuration(Number.isFinite(vocalAudio?.duration) ? vocalAudio.duration : 0);
+      return;
+    }
+
+    const audio = audioRef.current;
+    setPlaybackMode("play");
+    setCurrentTime(audio?.currentTime || 0);
+    setDuration(Number.isFinite(audio?.duration) ? audio.duration : 0);
   }
 
   function currentPlayerMode() {
@@ -835,6 +862,18 @@ function App() {
   async function renameSong(song, nextName) {
     if (!supabase || !song.audioPath || !nextName.trim()) return;
     await setDisplayName(supabaseConfig.buckets.audio, song.audioPath, nextName.trim());
+    await refreshLibrary(song.id);
+  }
+
+  async function saveSongLyrics(song, lyrics) {
+    if (!supabase || !song.audioPath) return;
+    const bucket = supabaseConfig.buckets.audio;
+    const manifest = await loadFileManifest(bucket);
+    manifest[song.audioPath] = {
+      ...(manifest[song.audioPath] ?? {}),
+      lyrics
+    };
+    await saveFileManifest(bucket, manifest);
     await refreshLibrary(song.id);
   }
 
@@ -1279,6 +1318,7 @@ function App() {
 
   const playerMode = currentPlayerMode();
   const playerSong = playerMode === "split" ? selectedSplitSong : selectedSong;
+  const lyricsSong = appSongs.find((song) => song.id === lyricsSongId);
   const canInstallApp = Boolean(installPrompt && !isStandaloneApp);
 
   async function installApp() {
@@ -1390,6 +1430,7 @@ function App() {
             onRenameSong={renameSong}
             onDeleteSong={deleteSong}
             onReorderSongs={reorderSongs}
+            onOpenLyrics={(song) => setLyricsSongId(song.id)}
           />
         )}
         <div className={activeTab === "split" ? "" : "tab-panel-hidden"}>
@@ -1400,6 +1441,7 @@ function App() {
             libraryStatus={splitLibraryStatus}
             isAdmin={isAdminMode}
             splitRefs={splitRefs}
+            isPlayerActive={playerMode === "split"}
             splitVolumes={splitVolumes}
             splitMuted={splitMuted}
             setSplitInstrumentVolume={setSplitInstrumentVolume}
@@ -1479,6 +1521,14 @@ function App() {
         cyclePlaySequenceMode={cyclePlaySequenceMode}
         onEnded={handleMainAudioEnded}
       />
+      {lyricsSong && (
+        <LyricsWindow
+          song={lyricsSong}
+          isAdmin={isAdminMode}
+          onClose={() => setLyricsSongId("")}
+          onSave={saveSongLyrics}
+        />
+      )}
     </div>
   );
 }
@@ -1768,7 +1818,8 @@ function PlayList({
   onUploadSong,
   onRenameSong,
   onDeleteSong,
-  onReorderSongs
+  onReorderSongs,
+  onOpenLyrics
 }) {
   const selectedIndex = songs.findIndex((song) => song.id === selectedSong.id);
 
@@ -1819,8 +1870,57 @@ function PlayList({
         onUploadSong={onUploadSong}
         onRenameSong={onRenameSong}
         onDeleteSong={onDeleteSong}
+        onOpenLyrics={onOpenLyrics}
       />
     </section>
+  );
+}
+
+function LyricsWindow({ song, isAdmin, onClose, onSave }) {
+  const [draft, setDraft] = useState(song.lyrics || "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(song.lyrics || "");
+  }, [song.id, song.lyrics]);
+
+  async function save() {
+    setIsSaving(true);
+    try {
+      await onSave?.(song, draft);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <aside className="lyrics-window" aria-label="가사창">
+      <div className="lyrics-window-head">
+        <div>
+          <span>가사</span>
+          <strong>{song.title}</strong>
+        </div>
+        <button type="button" title="가사창 닫기" onClick={onClose}>
+          <X size={16} />
+        </button>
+      </div>
+      {isAdmin ? (
+        <div className="lyrics-editor">
+          <textarea
+            value={draft}
+            placeholder="가사를 입력하세요."
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <button type="button" onClick={save} disabled={isSaving}>
+            {isSaving ? "저장 중" : "가사 저장"}
+          </button>
+        </div>
+      ) : (
+        <div className="lyrics-text">
+          {song.lyrics?.trim() ? song.lyrics : "등록된 가사가 없습니다."}
+        </div>
+      )}
+    </aside>
   );
 }
 
@@ -1834,6 +1934,7 @@ function SongList({
   onUploadSong,
   onRenameSong,
   onDeleteSong,
+  onOpenLyrics,
   renderSongAction,
   renderAfterSong
 }) {
@@ -1855,6 +1956,7 @@ function SongList({
                 "song-row",
                 selectedSong.id === song.id ? "selected" : "",
                 editable ? "editable" : "",
+                mode === "play" && onOpenLyrics ? "has-lyrics-action" : "",
                 renderSongAction ? "with-action" : ""
               ]
                 .filter(Boolean)
@@ -1885,6 +1987,19 @@ function SongList({
                 <span className="song-meta">{mode === "split" ? `${song.partsReady}/6` : song.scores.length}</span>
               )}
               {renderSongAction?.(song)}
+              {(mode === "play" && onOpenLyrics) && (
+                <button
+                  className="lyrics-list-button"
+                  type="button"
+                  title="가사 보기"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenLyrics(song);
+                  }}
+                >
+                  <FileText size={15} />
+                </button>
+              )}
               {editable && (
                 <div className="song-actions" onClick={(event) => event.stopPropagation()}>
                   {isEditing ? (
@@ -1948,6 +2063,7 @@ function SplitPanel({
   libraryStatus,
   isAdmin,
   splitRefs,
+  isPlayerActive,
   splitVolumes,
   splitMuted,
   setSplitInstrumentVolume,
@@ -1988,10 +2104,10 @@ function SplitPanel({
         crossOrigin="anonymous"
         preload="metadata"
         onLoadedMetadata={(event) => {
-          if (instrument.key === "vocal") setDuration(event.currentTarget.duration);
+          if (instrument.key === "vocal" && isPlayerActive) setDuration(event.currentTarget.duration);
         }}
         onTimeUpdate={(event) => {
-          if (instrument.key === "vocal") setCurrentTime(event.currentTarget.currentTime);
+          if (instrument.key === "vocal" && isPlayerActive) setCurrentTime(event.currentTarget.currentTime);
         }}
         onEnded={() => onSplitAudioEnded?.(instrument.key)}
       />
@@ -2970,8 +3086,12 @@ function PlayerBar({
         src={selectedSong.audioUrl}
         crossOrigin="anonymous"
         preload="metadata"
-        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
-        onTimeUpdate={(event) => handleTrackedTime(event.currentTarget.currentTime)}
+        onLoadedMetadata={(event) => {
+          if (activeTab !== "split") setDuration(event.currentTarget.duration);
+        }}
+        onTimeUpdate={(event) => {
+          if (activeTab !== "split") handleTrackedTime(event.currentTarget.currentTime);
+        }}
         onEnded={onEnded}
       />
       <div className="player-head">
