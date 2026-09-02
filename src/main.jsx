@@ -1879,10 +1879,52 @@ function PlayList({
 function LyricsWindow({ song, isAdmin, onClose, onSave }) {
   const [draft, setDraft] = useState(song.lyrics || "");
   const [isSaving, setIsSaving] = useState(false);
+  const [windowSize, setWindowSize] = useState(() => ({
+    width: clamp(Math.round(window.innerWidth * 0.42), 180, 460),
+    height: clamp(Math.round(window.innerHeight * 0.42), 210, 460)
+  }));
+  const resizeStateRef = useRef(null);
 
   useEffect(() => {
     setDraft(song.lyrics || "");
   }, [song.id, song.lyrics]);
+
+  useEffect(() => {
+    const handlePointerMove = (event) => {
+      const resizeState = resizeStateRef.current;
+      if (!resizeState) return;
+      event.preventDefault();
+      const maxWidth = Math.max(180, window.innerWidth - 24);
+      const maxHeight = Math.max(210, window.innerHeight - 140);
+      setWindowSize({
+        width: clamp(resizeState.width + event.clientX - resizeState.x, 180, maxWidth),
+        height: clamp(resizeState.height + event.clientY - resizeState.y, 210, maxHeight)
+      });
+    };
+    const stopResize = () => {
+      resizeStateRef.current = null;
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+  }, []);
+
+  function startResize(event) {
+    event.preventDefault();
+    resizeStateRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      width: windowSize.width,
+      height: windowSize.height
+    };
+  }
 
   async function save() {
     setIsSaving(true);
@@ -1894,7 +1936,7 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
   }
 
   return (
-    <aside className="lyrics-window" aria-label="가사창">
+    <aside className="lyrics-window" style={windowSize} aria-label="가사창">
       <div className="lyrics-window-head">
         <div>
           <span>가사</span>
@@ -1920,6 +1962,7 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
           {song.lyrics?.trim() ? song.lyrics : "등록된 가사가 없습니다."}
         </div>
       )}
+      <button className="lyrics-resize-handle" type="button" title="가사창 크기 조절" onPointerDown={startResize} />
     </aside>
   );
 }

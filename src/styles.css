@@ -548,8 +548,8 @@ h1 {
   z-index: 8;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(360px, 35vw);
-  height: min(360px, 35vh);
+  width: min(432px, 42vw);
+  height: min(432px, 42vh);
   min-width: 260px;
   min-height: 230px;
   overflow: hidden;
@@ -644,6 +644,20 @@ h1 {
 .lyrics-editor button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.lyrics-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 8px 0 10px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 48%, rgba(71, 85, 105, 0.26) 49% 57%, transparent 58%),
+    linear-gradient(135deg, transparent 62%, rgba(71, 85, 105, 0.34) 63% 71%, transparent 72%);
+  touch-action: none;
 }
 
 .playlist-order-actions {
@@ -1870,8 +1884,8 @@ input[type="range"]::-webkit-slider-thumb {
   .lyrics-window {
     right: 12px;
     bottom: 276px;
-    width: 35vw;
-    height: 35vh;
+    width: 42vw;
+    height: 42vh;
     min-width: 150px;
     min-height: 170px;
     border-radius: 9px;
@@ -1914,6 +1928,11 @@ input[type="range"]::-webkit-slider-thumb {
   .lyrics-editor button {
     min-height: 28px;
     font-size: 0.72rem;
+  }
+
+  .lyrics-resize-handle {
+    width: 28px;
+    height: 28px;
   }
 
   .split-row-play-button,
