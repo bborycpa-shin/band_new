@@ -1880,12 +1880,12 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
   const [draft, setDraft] = useState(song.lyrics || "");
   const [isSaving, setIsSaving] = useState(false);
   const [windowSize, setWindowSize] = useState(() => ({
-    width: clamp(Math.round(window.innerWidth * 0.42), 180, 460),
-    height: clamp(Math.round(window.innerHeight * 0.42), 210, 460)
+    width: clamp(Math.round(window.innerWidth * 0.5), 180, 550),
+    height: clamp(Math.round(window.innerHeight * 0.5), 210, 550)
   }));
   const [windowPosition, setWindowPosition] = useState(() => {
-    const width = clamp(Math.round(window.innerWidth * 0.42), 180, 460);
-    const height = clamp(Math.round(window.innerHeight * 0.42), 210, 460);
+    const width = clamp(Math.round(window.innerWidth * 0.5), 180, 550);
+    const height = clamp(Math.round(window.innerHeight * 0.5), 210, 550);
     const bottomOffset = window.innerWidth <= 760 ? 276 : 198;
     return {
       left: clamp(window.innerWidth - width - 16, 8, window.innerWidth - width - 8),

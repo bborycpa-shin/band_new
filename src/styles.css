@@ -548,8 +548,8 @@ h1 {
   z-index: 8;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(432px, 42vw);
-  height: min(432px, 42vh);
+  width: min(520px, 50vw);
+  height: min(520px, 50vh);
   min-width: 260px;
   min-height: 230px;
   overflow: hidden;
@@ -1884,8 +1884,8 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .lyrics-window {
-    width: 42vw;
-    height: 42vh;
+    width: 50vw;
+    height: 50vh;
     min-width: 150px;
     min-height: 170px;
     border-radius: 9px;
