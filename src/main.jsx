@@ -1883,7 +1883,17 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
     width: clamp(Math.round(window.innerWidth * 0.42), 180, 460),
     height: clamp(Math.round(window.innerHeight * 0.42), 210, 460)
   }));
+  const [windowPosition, setWindowPosition] = useState(() => {
+    const width = clamp(Math.round(window.innerWidth * 0.42), 180, 460);
+    const height = clamp(Math.round(window.innerHeight * 0.42), 210, 460);
+    const bottomOffset = window.innerWidth <= 760 ? 276 : 198;
+    return {
+      left: clamp(window.innerWidth - width - 16, 8, window.innerWidth - width - 8),
+      top: clamp(window.innerHeight - height - bottomOffset, 8, window.innerHeight - height - 8)
+    };
+  });
   const resizeStateRef = useRef(null);
+  const moveStateRef = useRef(null);
 
   useEffect(() => {
     setDraft(song.lyrics || "");
@@ -1892,35 +1902,68 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
   useEffect(() => {
     const handlePointerMove = (event) => {
       const resizeState = resizeStateRef.current;
-      if (!resizeState) return;
+      const moveState = moveStateRef.current;
+      if (!resizeState && !moveState) return;
+
       event.preventDefault();
-      const maxWidth = Math.max(180, window.innerWidth - 24);
-      const maxHeight = Math.max(210, window.innerHeight - 140);
-      setWindowSize({
-        width: clamp(resizeState.width + event.clientX - resizeState.x, 180, maxWidth),
-        height: clamp(resizeState.height + event.clientY - resizeState.y, 210, maxHeight)
+
+      if (resizeState) {
+        const right = resizeState.left + resizeState.width;
+        const maxWidth = Math.max(180, Math.min(window.innerWidth - 24, right - 8));
+        const maxHeight = Math.max(210, window.innerHeight - resizeState.top - 8);
+        const nextWidth = clamp(resizeState.width - (event.clientX - resizeState.x), 180, maxWidth);
+        const nextHeight = clamp(resizeState.height + event.clientY - resizeState.y, 210, maxHeight);
+        setWindowSize({ width: nextWidth, height: nextHeight });
+        setWindowPosition({
+          left: clamp(right - nextWidth, 8, window.innerWidth - nextWidth - 8),
+          top: resizeState.top
+        });
+        return;
+      }
+
+      setWindowPosition({
+        left: clamp(moveState.left + event.clientX - moveState.x, 8, window.innerWidth - moveState.width - 8),
+        top: clamp(moveState.top + event.clientY - moveState.y, 8, window.innerHeight - moveState.height - 8)
       });
     };
-    const stopResize = () => {
+    const stopInteraction = () => {
       resizeStateRef.current = null;
+      moveStateRef.current = null;
     };
 
     window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopResize);
-    window.addEventListener("pointercancel", stopResize);
+    window.addEventListener("pointerup", stopInteraction);
+    window.addEventListener("pointercancel", stopInteraction);
 
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopResize);
-      window.removeEventListener("pointercancel", stopResize);
+      window.removeEventListener("pointerup", stopInteraction);
+      window.removeEventListener("pointercancel", stopInteraction);
     };
   }, []);
 
   function startResize(event) {
     event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     resizeStateRef.current = {
       x: event.clientX,
       y: event.clientY,
+      width: windowSize.width,
+      height: windowSize.height,
+      left: windowPosition.left,
+      top: windowPosition.top
+    };
+  }
+
+  function startMove(event) {
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    moveStateRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      left: windowPosition.left,
+      top: windowPosition.top,
       width: windowSize.width,
       height: windowSize.height
     };
@@ -1936,8 +1979,8 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
   }
 
   return (
-    <aside className="lyrics-window" style={windowSize} aria-label="가사창">
-      <div className="lyrics-window-head">
+    <aside className="lyrics-window" style={{ ...windowSize, ...windowPosition }} aria-label="가사창">
+      <div className="lyrics-window-head" onPointerDown={startMove}>
         <div>
           <span>가사</span>
           <strong>{song.title}</strong>
