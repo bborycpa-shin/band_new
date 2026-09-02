@@ -75,6 +75,7 @@ const libraryCacheKeys = {
   sheets: "band-cache:sheets:v1",
   albums: "band-cache:albums:v1"
 };
+const lyricsFontSizeKey = "band-lyrics-font-size";
 
 function readCachedItems(key) {
   try {
@@ -91,6 +92,11 @@ function writeCachedItems(key, items) {
   } catch {
     // Cache is only a startup speed boost, so storage failures can be ignored.
   }
+}
+
+function readSavedNumber(key, fallback) {
+  const value = Number(localStorage.getItem(key));
+  return Number.isFinite(value) ? value : fallback;
 }
 
 function todayKey() {
@@ -1883,6 +1889,7 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
     width: clamp(Math.round(window.innerWidth * 0.5), 180, 550),
     height: clamp(Math.round(window.innerHeight * 0.5), 210, 550)
   }));
+  const [lyricsFontSize, setLyricsFontSize] = useState(() => clamp(readSavedNumber(lyricsFontSizeKey, 15), 11, 28));
   const [windowPosition, setWindowPosition] = useState(() => {
     const width = clamp(Math.round(window.innerWidth * 0.5), 180, 550);
     const height = clamp(Math.round(window.innerHeight * 0.5), 210, 550);
@@ -1898,6 +1905,10 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
   useEffect(() => {
     setDraft(song.lyrics || "");
   }, [song.id, song.lyrics]);
+
+  useEffect(() => {
+    localStorage.setItem(lyricsFontSizeKey, String(lyricsFontSize));
+  }, [lyricsFontSize]);
 
   useEffect(() => {
     const handlePointerMove = (event) => {
@@ -1979,15 +1990,37 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
   }
 
   return (
-    <aside className="lyrics-window" style={{ ...windowSize, ...windowPosition }} aria-label="가사창">
+    <aside
+      className="lyrics-window"
+      style={{ ...windowSize, ...windowPosition, "--lyrics-font-size": `${lyricsFontSize}px` }}
+      aria-label="가사창"
+    >
       <div className="lyrics-window-head" onPointerDown={startMove}>
         <div>
           <span>가사</span>
           <strong>{song.title}</strong>
         </div>
-        <button type="button" title="가사창 닫기" onClick={onClose}>
-          <X size={16} />
-        </button>
+        <div className="lyrics-window-actions">
+          <button
+            type="button"
+            title="가사 글씨 작게"
+            disabled={lyricsFontSize <= 11}
+            onClick={() => setLyricsFontSize((value) => clamp(value - 1, 11, 28))}
+          >
+            A-
+          </button>
+          <button
+            type="button"
+            title="가사 글씨 크게"
+            disabled={lyricsFontSize >= 28}
+            onClick={() => setLyricsFontSize((value) => clamp(value + 1, 11, 28))}
+          >
+            A+
+          </button>
+          <button type="button" title="가사창 닫기" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
       </div>
       {isAdmin ? (
         <div className="lyrics-editor">

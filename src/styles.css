@@ -592,23 +592,36 @@ h1 {
   text-overflow: ellipsis;
 }
 
-.lyrics-window-head button {
-  display: grid;
+.lyrics-window-actions {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.lyrics-window-actions button {
+  display: grid;
   place-items: center;
-  width: 28px;
+  min-width: 28px;
   height: 28px;
   border: 0;
   border-radius: 7px;
   color: #334155;
   background: rgba(226, 232, 240, 0.9);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.lyrics-window-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .lyrics-text {
   overflow: auto;
   padding: 12px;
   color: #1f2937;
-  font-size: 0.88rem;
+  font-size: var(--lyrics-font-size, 15px);
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -631,7 +644,7 @@ h1 {
   color: #182033;
   background: rgba(255, 255, 255, 0.9);
   font: inherit;
-  font-size: 0.84rem;
+  font-size: var(--lyrics-font-size, 15px);
   line-height: 1.5;
 }
 
@@ -1904,14 +1917,18 @@ input[type="range"]::-webkit-slider-thumb {
     font-size: 0.72rem;
   }
 
-  .lyrics-window-head button {
-    width: 24px;
+  .lyrics-window-actions {
+    gap: 3px;
+  }
+
+  .lyrics-window-actions button {
+    min-width: 24px;
     height: 24px;
+    font-size: 0.58rem;
   }
 
   .lyrics-text {
     padding: 8px;
-    font-size: 0.72rem;
     line-height: 1.45;
   }
 
@@ -1922,7 +1939,6 @@ input[type="range"]::-webkit-slider-thumb {
 
   .lyrics-editor textarea {
     padding: 7px;
-    font-size: 0.7rem;
   }
 
   .lyrics-editor button {
