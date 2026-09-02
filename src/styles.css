@@ -572,7 +572,7 @@ h1 {
   user-select: none;
 }
 
-.lyrics-window-head div {
+.lyrics-window-title {
   display: grid;
   min-width: 0;
   gap: 1px;
@@ -596,6 +596,7 @@ h1 {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
+  flex-direction: row;
   gap: 4px;
 }
 
@@ -615,6 +616,13 @@ h1 {
 .lyrics-window-actions button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.lyrics-window-actions .lyrics-close-button {
+  min-width: 36px;
+  height: 36px;
+  color: #1f2937;
+  background: rgba(226, 232, 240, 0.96);
 }
 
 .lyrics-text {
@@ -1925,6 +1933,11 @@ input[type="range"]::-webkit-slider-thumb {
     min-width: 24px;
     height: 24px;
     font-size: 0.58rem;
+  }
+
+  .lyrics-window-actions .lyrics-close-button {
+    min-width: 32px;
+    height: 32px;
   }
 
   .lyrics-text {

@@ -1996,7 +1996,7 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
       aria-label="가사창"
     >
       <div className="lyrics-window-head" onPointerDown={startMove}>
-        <div>
+        <div className="lyrics-window-title">
           <span>가사</span>
           <strong>{song.title}</strong>
         </div>
@@ -2017,8 +2017,8 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
           >
             A+
           </button>
-          <button type="button" title="가사창 닫기" onClick={onClose}>
-            <X size={16} />
+          <button className="lyrics-close-button" type="button" title="가사창 닫기" onClick={onClose}>
+            <X size={20} />
           </button>
         </div>
       </div>
