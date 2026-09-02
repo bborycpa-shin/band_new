@@ -1,9 +1,8 @@
-import { instruments, sampleSongs } from "../data/songs";
+import { sampleSongs } from "../data/songs";
 import { loadFileManifest, manifestFolder, manifestPath } from "./fileManifest";
 import { supabase, supabaseConfig } from "./supabase";
 
 const audioExtensions = [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm"];
-const scoreExtensions = [".pdf", ".jpg", ".jpeg", ".png"];
 
 function hasExtension(name, extensions) {
   return extensions.some((extension) => name.toLowerCase().endsWith(extension));
@@ -50,18 +49,11 @@ export async function loadSupabaseSongs() {
   }
 
   const audioBucket = supabaseConfig.buckets.audio;
-  const splitBucket = supabaseConfig.buckets.split;
-  const scoreBucket = supabaseConfig.buckets.score;
-  const albumBucket = supabaseConfig.buckets.album;
 
   try {
-    const [audioFiles, splitFiles, scoreFiles, albumFiles, audioManifest, scoreManifest] = await Promise.all([
+    const [audioFiles, audioManifest] = await Promise.all([
       listAll(audioBucket),
-      listAll(splitBucket).catch(() => []),
-      listAll(scoreBucket).catch(() => []),
-      listAll(albumBucket).catch(() => []),
-      loadFileManifest(audioBucket).catch(() => ({})),
-      loadFileManifest(scoreBucket).catch(() => ({}))
+      loadFileManifest(audioBucket).catch(() => ({}))
     ]);
 
     const fullAudioFiles = audioFiles.filter((path) => hasExtension(path, audioExtensions));
@@ -78,32 +70,6 @@ export async function loadSupabaseSongs() {
     const mappedSongs = orderedAudioFiles.map((path, index) => {
       const folder = path.includes("/") ? path.split("/")[0] : `song-${index + 1}`;
       const title = audioManifest[path]?.displayName || titleFromPath(path) || folder;
-      const splitTrackPaths = Object.fromEntries(
-        instruments.map((instrument) => {
-          const track = splitFiles.find(
-            (file) =>
-              file.startsWith(`${folder}/`) &&
-              (file.toLowerCase().includes(instrument.key) ||
-                file.toLowerCase().includes(instrument.label.toLowerCase()))
-          );
-          return [instrument.key, track || ""];
-        })
-      );
-      const splitTracks = Object.fromEntries(
-        instruments.map((instrument) => {
-          const track = splitTrackPaths[instrument.key];
-          return [instrument.key, track ? publicUrl(splitBucket, track) : publicUrl(audioBucket, path)];
-        })
-      );
-      const scores = scoreFiles
-        .filter((file) => file.startsWith(`${folder}/`) && hasExtension(file, scoreExtensions))
-        .map((file) => ({
-          label: scoreManifest[file]?.displayName || titleFromPath(file) || "악보",
-          url: publicUrl(scoreBucket, file)
-        }));
-      const image = albumFiles.find(
-        (file) => file.startsWith(`${folder}/`) && hasExtension(file, [".jpg", ".jpeg", ".png", ".webp"])
-      );
 
       return {
         id: folder || `song-${index + 1}`,
@@ -111,14 +77,11 @@ export async function loadSupabaseSongs() {
         artist: "",
         audioPath: path,
         audioUrl: publicUrl(audioBucket, path),
-        splitTrackPaths,
-        splitTracks,
-        scores,
-        album: {
-          images: image ? [publicUrl(albumBucket, image)] : [],
-          youtubeId: ""
-        },
-        partsReady: Object.values(splitTracks).filter(Boolean).length
+        splitTrackPaths: {},
+        splitTracks: {},
+        scores: [],
+        album: { images: [], youtubeId: "" },
+        partsReady: 0
       };
     });
 
