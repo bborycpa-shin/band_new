@@ -56,7 +56,7 @@ const tabs = [
   { key: "drum", label: "드럼", icon: Drum }
 ];
 
-const rates = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
+const rates = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
 const playSequenceModes = ["list-once", "list-repeat", "song-once", "song-repeat"];
 const playSequenceLabels = {
   "list-once": "\uc804\uace1",
@@ -69,30 +69,7 @@ const albumAccessKeyPrefix = "band-album-access-unlocked:";
 const defaultAlbumQuestion = "2026년 여름공연시 베이스기타 멤버이름은?(Hint:손**)";
 const defaultAlbumAnswer = "손상이";
 const albumPageSize = 20;
-const libraryCacheKeys = {
-  songs: "band-cache:songs:v1",
-  splitSongs: "band-cache:split-songs:v1",
-  sheets: "band-cache:sheets:v1",
-  albums: "band-cache:albums:v1"
-};
 const lyricsFontSizeKey = "band-lyrics-font-size";
-
-function readCachedItems(key) {
-  try {
-    const cached = JSON.parse(localStorage.getItem(key) || "null");
-    return Array.isArray(cached?.items) ? cached.items : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeCachedItems(key, items) {
-  try {
-    localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), items: Array.isArray(items) ? items : [] }));
-  } catch {
-    // Cache is only a startup speed boost, so storage failures can be ignored.
-  }
-}
 
 function readSavedNumber(key, fallback) {
   const value = Number(localStorage.getItem(key));
@@ -261,31 +238,19 @@ function newAlbumFolderName() {
 
 function App() {
   const [activeTab, setActiveTab] = useState("play");
-  const [appSongs, setAppSongs] = useState(() => readCachedItems(libraryCacheKeys.songs));
-  const [libraryStatus, setLibraryStatus] = useState(() => {
-    const cachedCount = readCachedItems(libraryCacheKeys.songs).length;
-    return cachedCount ? `음원 ${cachedCount}곡` : "불러오는 중";
-  });
+  const [appSongs, setAppSongs] = useState([]);
+  const [libraryStatus, setLibraryStatus] = useState("불러오는 중");
   const [selectedId, setSelectedId] = useState("");
   const [pendingPlayId, setPendingPlayId] = useState("");
-  const [splitSongs, setSplitSongs] = useState(() => readCachedItems(libraryCacheKeys.splitSongs));
-  const [splitLibraryStatus, setSplitLibraryStatus] = useState(() => {
-    const cachedCount = readCachedItems(libraryCacheKeys.splitSongs).length;
-    return cachedCount ? `분할 ${cachedCount}곡` : "불러오는 중";
-  });
+  const [splitSongs, setSplitSongs] = useState([]);
+  const [splitLibraryStatus, setSplitLibraryStatus] = useState("불러오는 중");
   const [selectedSplitId, setSelectedSplitId] = useState("");
   const [pendingSplitPlayId, setPendingSplitPlayId] = useState("");
-  const [sheetFiles, setSheetFiles] = useState(() => readCachedItems(libraryCacheKeys.sheets));
-  const [sheetStatus, setSheetStatus] = useState(() => {
-    const cachedCount = readCachedItems(libraryCacheKeys.sheets).length;
-    return cachedCount ? `악보 ${cachedCount}개` : "불러오는 중";
-  });
+  const [sheetFiles, setSheetFiles] = useState([]);
+  const [sheetStatus, setSheetStatus] = useState("불러오는 중");
   const [sheetOrder, setSheetOrder] = useState([]);
-  const [albumFolders, setAlbumFolders] = useState(() => readCachedItems(libraryCacheKeys.albums));
-  const [albumStatus, setAlbumStatus] = useState(() => {
-    const cachedCount = readCachedItems(libraryCacheKeys.albums).length;
-    return cachedCount ? `사진 폴더 ${cachedCount}개` : "불러오는 중";
-  });
+  const [albumFolders, setAlbumFolders] = useState([]);
+  const [albumStatus, setAlbumStatus] = useState("불러오는 중");
   const [selectedAlbumId, setSelectedAlbumId] = useState("");
   const [lyricsSongId, setLyricsSongId] = useState("");
   const [isAdminMode, setIsAdminMode] = useState(false);
@@ -337,7 +302,6 @@ function App() {
         : result.songs[0]?.id ?? sampleSongs[0].id
     );
     if (result.source === "supabase") {
-      writeCachedItems(libraryCacheKeys.songs, result.songs);
       setLibraryStatus(`음원 ${result.songs.length}곡`);
     } else {
       setLibraryStatus(result.error ? `샘플 목록: ${result.error}` : "샘플 목록");
@@ -353,7 +317,6 @@ function App() {
         : result.songs[0]?.id ?? "split-empty"
     );
     if (result.source === "supabase") {
-      writeCachedItems(libraryCacheKeys.splitSongs, result.songs);
       setSplitLibraryStatus(`분할 ${result.songs.length}곡`);
     } else {
       setSplitLibraryStatus(result.error ? `분할 목록: ${result.error}` : "분할 목록 없음");
@@ -365,7 +328,6 @@ function App() {
     setSheetFiles(result.sheets);
     setSheetOrder(result.order ?? []);
     if (result.source === "supabase") {
-      writeCachedItems(libraryCacheKeys.sheets, result.sheets);
       setSheetStatus(`악보 ${result.sheets.length}개`);
     } else {
       setSheetStatus(result.error ? `악보 목록: ${result.error}` : "악보 없음");
@@ -381,7 +343,6 @@ function App() {
         : result.albums[0]?.id ?? "album-empty"
     );
     if (result.source === "supabase") {
-      writeCachedItems(libraryCacheKeys.albums, result.albums);
       setAlbumStatus(`사진 폴더 ${result.albums.length}개`);
     } else {
       setAlbumStatus(result.error ? `사진 목록: ${result.error}` : "사진 폴더 없음");
@@ -1886,12 +1847,12 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
   const [draft, setDraft] = useState(song.lyrics || "");
   const [isSaving, setIsSaving] = useState(false);
   const [windowSize, setWindowSize] = useState(() => ({
-    width: clamp(Math.round(window.innerWidth * 0.5), 180, 550),
+    width: clamp(Math.round(window.innerWidth * (window.innerWidth <= 760 ? 0.8 : 0.5)), 180, 550),
     height: clamp(Math.round(window.innerHeight * 0.5), 210, 550)
   }));
   const [lyricsFontSize, setLyricsFontSize] = useState(() => clamp(readSavedNumber(lyricsFontSizeKey, 15), 11, 28));
   const [windowPosition, setWindowPosition] = useState(() => {
-    const width = clamp(Math.round(window.innerWidth * 0.5), 180, 550);
+    const width = clamp(Math.round(window.innerWidth * (window.innerWidth <= 760 ? 0.8 : 0.5)), 180, 550);
     const height = clamp(Math.round(window.innerHeight * 0.5), 210, 550);
     const bottomOffset = window.innerWidth <= 760 ? 276 : 198;
     return {

@@ -1685,8 +1685,8 @@ input[type="range"]::-webkit-slider-thumb {
 
 .rate-row {
   display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 3px;
   margin-bottom: 8px;
 }
 
@@ -1905,7 +1905,7 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .lyrics-window {
-    width: 50vw;
+    width: 80vw;
     height: 50vh;
     min-width: 150px;
     min-height: 170px;
@@ -2156,12 +2156,12 @@ input[type="range"]::-webkit-slider-thumb {
   }
 
   .rate-row {
-    gap: 2px;
+    gap: 1px;
     margin-bottom: 5px;
   }
 
   .rate {
-    font-size: 0.66rem;
+    font-size: 0.58rem;
     min-height: 22px;
   }
 
