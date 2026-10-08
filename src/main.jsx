@@ -40,15 +40,16 @@ import {
   setDisplayName,
   setManifestOrder
 } from "./lib/fileManifest";
-import { loadSupabaseSongs } from "./lib/loadSupabaseSongs";
+import { loadSupabaseSongs, practiceFolder, songOrderKey } from "./lib/loadSupabaseSongs";
 import { createEmptySplitSong, loadSupabaseSplitSongs } from "./lib/loadSupabaseSplitSongs";
 import { loadSupabaseSheets } from "./lib/loadSupabaseSheets";
 import { createEmptyAlbum, loadSupabaseAlbums } from "./lib/loadSupabaseAlbums";
-import { instruments, sampleSongs } from "./data/songs";
+import { instruments } from "./data/songs";
 import "./styles.css";
 
 const tabs = [
   { key: "play", label: "재생", icon: ListMusic },
+  { key: "practice", label: "연습", icon: Music2 },
   { key: "split", label: "분할", icon: SlidersHorizontal },
   { key: "score", label: "악보", icon: Download },
   { key: "album", label: "앨범", icon: Image },
@@ -241,6 +242,10 @@ function App() {
   const [appSongs, setAppSongs] = useState([]);
   const [libraryStatus, setLibraryStatus] = useState("불러오는 중");
   const [selectedId, setSelectedId] = useState("");
+  const [practiceSongs, setPracticeSongs] = useState([]);
+  const [practiceLibraryStatus, setPracticeLibraryStatus] = useState("불러오는 중");
+  const [selectedPracticeId, setSelectedPracticeId] = useState("");
+  const [mainLibraryMode, setMainLibraryMode] = useState("play");
   const [pendingPlayId, setPendingPlayId] = useState("");
   const [splitSongs, setSplitSongs] = useState([]);
   const [splitLibraryStatus, setSplitLibraryStatus] = useState("불러오는 중");
@@ -284,6 +289,19 @@ function App() {
     () => appSongs.find((song) => song.id === selectedId) ?? appSongs[0] ?? emptySong,
     [appSongs, selectedId]
   );
+  const selectedPracticeSong = useMemo(
+    () => practiceSongs.find((song) => song.id === selectedPracticeId) ?? practiceSongs[0] ?? {
+      ...emptySong, title: "연습 음원이 없습니다"
+    },
+    [practiceSongs, selectedPracticeId]
+  );
+  const mainSongs = mainLibraryMode === "practice" ? practiceSongs : appSongs;
+  const selectedMainSong = mainLibraryMode === "practice" ? selectedPracticeSong : selectedSong;
+
+  function setMainSelectedId(id, library = mainLibraryMode) {
+    if (library === "practice") setSelectedPracticeId(id);
+    else setSelectedId(id);
+  }
   const selectedSplitSong = useMemo(
     () => splitSongs.find((song) => song.id === selectedSplitId) ?? splitSongs[0] ?? createEmptySplitSong(),
     [splitSongs, selectedSplitId]
@@ -293,14 +311,18 @@ function App() {
     [albumFolders, selectedAlbumId]
   );
 
-  async function refreshLibrary(nextSelectedId = selectedId) {
+  async function refreshLibrary(nextSelectedId, library = mainLibraryMode) {
     const result = await loadSupabaseSongs();
     setAppSongs(result.songs);
-    setSelectedId(
-      result.songs.some((song) => song.id === nextSelectedId)
-        ? nextSelectedId
-        : result.songs[0]?.id ?? sampleSongs[0].id
-    );
+    setPracticeSongs(result.practiceSongs);
+    const nextId = library === "play" && nextSelectedId !== undefined ? nextSelectedId : selectedId;
+    const nextPracticeId = library === "practice" && nextSelectedId !== undefined
+      ? nextSelectedId : selectedPracticeId;
+    setSelectedId(result.songs.some((song) => song.id === nextId) ? nextId : result.songs[0]?.id ?? "");
+    setSelectedPracticeId(result.practiceSongs.some((song) => song.id === nextPracticeId)
+      ? nextPracticeId : result.practiceSongs[0]?.id ?? "");
+    setPracticeLibraryStatus(result.practiceError
+      ? `연습 목록: ${result.practiceError}` : `음원 ${result.practiceSongs.length}곡`);
     if (result.source === "supabase") {
       setLibraryStatus(`음원 ${result.songs.length}곡`);
     } else {
@@ -398,13 +420,13 @@ function App() {
   }, [rate, keyShift, splitVolumes, splitMuted, selectedSplitSong]);
 
   useEffect(() => {
-    if (activeTab === "split" && playbackMode !== "play") return;
+    if (activeTab === "split" && playbackMode === "split") return;
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
     setAbLoop({ start: null, end: null });
     setKeyShift(0);
-  }, [selectedId]);
+  }, [selectedMainSong.id, mainLibraryMode]);
 
   useEffect(() => {
     if (activeTab !== "split" && playbackMode !== "split") return;
@@ -416,17 +438,17 @@ function App() {
   }, [selectedSplitId]);
 
   useEffect(() => {
-    if (!pendingPlayId || pendingPlayId !== selectedSong.id || !selectedSong.audioUrl) return;
+    if (!pendingPlayId || pendingPlayId !== selectedMainSong.id || !selectedMainSong.audioUrl) return;
     const audio = audioRef.current;
     if (!audio) return;
 
     pauseSplitTracks();
-    setPlaybackMode("play");
+    setPlaybackMode(mainLibraryMode);
     audio.currentTime = 0;
     applyPlaybackSettings(audio, rate, 0);
     audio.play().then(() => setIsPlaying(true)).catch(() => {});
     setPendingPlayId("");
-  }, [pendingPlayId, selectedSong, rate]);
+  }, [pendingPlayId, selectedMainSong, mainLibraryMode, rate]);
 
   useEffect(() => {
     if (!pendingSplitPlayId || pendingSplitPlayId !== selectedSplitSong.id) return;
@@ -450,13 +472,14 @@ function App() {
     setPendingSplitPlayId("");
   }, [pendingSplitPlayId, selectedSplitSong, rate, splitVolumes, splitMuted]);
 
-  function selectSong(song) {
-    setSelectedId(song.id);
+  function selectSong(song, library = "play") {
+    setMainLibraryMode(library);
+    setMainSelectedId(song.id, library);
     setKeyShift(0);
     setPendingPlayId(song.id);
     if (song.audioUrl && audioRef.current) {
       pauseSplitTracks();
-      setPlaybackMode("play");
+      setPlaybackMode(library);
       audioRef.current.src = song.audioUrl;
       audioRef.current.currentTime = 0;
       applyPlaybackSettings(audioRef.current, rate, 0);
@@ -483,6 +506,20 @@ function App() {
 
   function switchTab(nextTab) {
     setActiveTab(nextTab);
+    if ((nextTab === "play" || nextTab === "practice") && nextTab !== mainLibraryMode) {
+      pauseMainAudio();
+      pauseSplitTracks();
+      setIsPlaying(false);
+      setPendingPlayId("");
+      setPendingSplitPlayId("");
+      setMainLibraryMode(nextTab);
+      setPlaybackMode(nextTab);
+      setCurrentTime(0);
+      setDuration(0);
+      setKeyShift(0);
+      setAbLoop({ start: null, end: null });
+      return;
+    }
     if (isPlaying) return;
 
     if (nextTab === "split") {
@@ -494,13 +531,13 @@ function App() {
     }
 
     const audio = audioRef.current;
-    setPlaybackMode("play");
+    setPlaybackMode(mainLibraryMode);
     setCurrentTime(audio?.currentTime || 0);
     setDuration(Number.isFinite(audio?.duration) ? audio.duration : 0);
   }
 
   function currentPlayerMode() {
-    return isPlaying ? playbackMode : activeTab;
+    return isPlaying ? playbackMode : activeTab === "split" ? "split" : mainLibraryMode;
   }
 
   async function togglePlay() {
@@ -510,11 +547,13 @@ function App() {
     }
 
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio || !selectedMainSong.audioUrl) return;
 
     if (audio.paused) {
       pauseSplitTracks();
-      setPlaybackMode("play");
+      setPlaybackMode(mainLibraryMode);
+      applyPlaybackSettings(audio, rate, keyShift);
+      audio.volume = volume;
       await audio.play();
       setIsPlaying(true);
     } else {
@@ -633,9 +672,10 @@ function App() {
       return;
     }
 
-    const currentIndex = appSongs.findIndex((song) => song.id === selectedSong.id);
-    const nextIndex = (currentIndex + offset + appSongs.length) % appSongs.length;
-    setSelectedId(appSongs[nextIndex].id);
+    if (!mainSongs.length) return;
+    const currentIndex = mainSongs.findIndex((song) => song.id === selectedMainSong.id);
+    const nextIndex = (currentIndex + offset + mainSongs.length) % mainSongs.length;
+    setMainSelectedId(mainSongs[nextIndex].id);
   }
 
   function cyclePlaySequenceMode() {
@@ -667,14 +707,14 @@ function App() {
     }
 
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio || !selectedMainSong.audioUrl) return;
 
     pauseSplitTracks();
-    setPlaybackMode("play");
+    setPlaybackMode(mainLibraryMode);
     audio.currentTime = 0;
     applyPlaybackSettings(audio, rate, keyShift);
     await audio.play().catch(() => {});
-    setIsPlaying(true);
+    setIsPlaying(!audio.paused);
   }
 
   function handleMainAudioEnded() {
@@ -683,19 +723,19 @@ function App() {
       return;
     }
 
-    const currentIndex = appSongs.findIndex((song) => song.id === selectedSong.id);
-    const hasNextSong = currentIndex >= 0 && currentIndex < appSongs.length - 1;
+    const currentIndex = mainSongs.findIndex((song) => song.id === selectedMainSong.id);
+    const hasNextSong = currentIndex >= 0 && currentIndex < mainSongs.length - 1;
 
     if (playSequenceMode === "list-once" && hasNextSong) {
-      const nextSong = appSongs[currentIndex + 1];
-      setSelectedId(nextSong.id);
+      const nextSong = mainSongs[currentIndex + 1];
+      setMainSelectedId(nextSong.id);
       setPendingPlayId(nextSong.id);
       return;
     }
 
-    if (playSequenceMode === "list-repeat" && appSongs.length) {
-      const nextSong = appSongs[hasNextSong ? currentIndex + 1 : 0];
-      setSelectedId(nextSong.id);
+    if (playSequenceMode === "list-repeat" && mainSongs.length) {
+      const nextSong = mainSongs[hasNextSong ? currentIndex + 1 : 0];
+      setMainSelectedId(nextSong.id);
       setPendingPlayId(nextSong.id);
       return;
     }
@@ -793,7 +833,7 @@ function App() {
     setSplitVolumes(Object.fromEntries(instruments.map((instrument) => [instrument.key, value])));
   }
 
-  async function uploadSongFile(song, file) {
+  async function uploadSongFile(song, file, library = "play") {
     const files = Array.from(file instanceof FileList ? file : file ? [file] : []);
     if (!supabase || !files.length) return;
     const bucket = supabaseConfig.buckets.audio;
@@ -801,7 +841,9 @@ function App() {
     const uploaded = [];
 
     for (const item of files) {
-      const folder = isNewSong ? newSongFolderName() : song.id;
+      const folder = isNewSong
+        ? `${library === "practice" ? `${practiceFolder}/` : ""}${newSongFolderName()}`
+        : song.id;
       const path = `${folder}/full/${uniqueFileName(item)}`;
       const { error } = await supabase.storage.from(bucket).upload(path, item, {
         cacheControl: "3600",
@@ -820,16 +862,16 @@ function App() {
     if (isNewSong) {
       await setManifestOrder(bucket, [
         ...uploaded.map((item) => item.path),
-        ...appSongs.map((item) => item.audioPath).filter(Boolean)
-      ]);
+        ...(library === "practice" ? practiceSongs : appSongs).map((item) => item.audioPath).filter(Boolean)
+      ], songOrderKey(library));
     }
-    await refreshLibrary(uploaded[0].folder);
+    await refreshLibrary(uploaded[0].folder, library);
   }
 
   async function renameSong(song, nextName) {
     if (!supabase || !song.audioPath || !nextName.trim()) return;
     await setDisplayName(supabaseConfig.buckets.audio, song.audioPath, nextName.trim());
-    await refreshLibrary(song.id);
+    await refreshLibrary(song.id, song.library ?? "play");
   }
 
   async function saveSongLyrics(song, lyrics) {
@@ -841,7 +883,7 @@ function App() {
       lyrics
     };
     await saveFileManifest(bucket, manifest);
-    await refreshLibrary(song.id);
+    await refreshLibrary(song.id, song.library ?? "play");
   }
 
   async function deleteSong(song) {
@@ -859,27 +901,30 @@ function App() {
     await removeDisplayName(bucket, song.audioPath);
     await setManifestOrder(
       bucket,
-      appSongs
+      (song.library === "practice" ? practiceSongs : appSongs)
         .filter((item) => item.audioPath && item.audioPath !== song.audioPath)
-        .map((item) => item.audioPath)
+        .map((item) => item.audioPath),
+      songOrderKey(song.library)
     );
     await refreshLibrary();
   }
 
-  async function reorderSongs(fromIndex, toIndex) {
+  async function reorderSongs(fromIndex, toIndex, library = "play") {
     if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
-    const previousSongs = appSongs;
-    const reordered = [...appSongs];
+    const previousSongs = library === "practice" ? practiceSongs : appSongs;
+    const setSongs = library === "practice" ? setPracticeSongs : setAppSongs;
+    const reordered = [...previousSongs];
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
-    setAppSongs(reordered);
+    setSongs(reordered);
     try {
       await setManifestOrder(
         supabaseConfig.buckets.audio,
-        reordered.map((song) => song.audioPath).filter(Boolean)
+        reordered.map((song) => song.audioPath).filter(Boolean),
+        songOrderKey(library)
       );
     } catch (error) {
-      setAppSongs(previousSongs);
+      setSongs(previousSongs);
       window.alert(`순서 저장 실패: ${error.message}`);
     }
   }
@@ -1284,8 +1329,8 @@ function App() {
   }
 
   const playerMode = currentPlayerMode();
-  const playerSong = playerMode === "split" ? selectedSplitSong : selectedSong;
-  const lyricsSong = appSongs.find((song) => song.id === lyricsSongId);
+  const playerSong = playerMode === "split" ? selectedSplitSong : selectedMainSong;
+  const lyricsSong = [...appSongs, ...practiceSongs].find((song) => song.id === lyricsSongId);
   const canInstallApp = Boolean(installPrompt && !isStandaloneApp);
 
   async function installApp() {
@@ -1386,17 +1431,21 @@ function App() {
       </nav>
 
       <main className="content">
-        {activeTab === "play" && (
+        {(activeTab === "play" || activeTab === "practice") && (
           <PlayList
-            songs={appSongs}
-            selectedSong={selectedSong}
-            onSelect={selectSong}
-            libraryStatus={libraryStatus}
+            key={activeTab}
+            title={activeTab === "practice" ? "연습 플레이리스트" : "플레이리스트"}
+            songs={activeTab === "practice" ? practiceSongs : appSongs}
+            selectedSong={activeTab === "practice" ? selectedPracticeSong : selectedSong}
+            onSelect={(song) => selectSong(song, activeTab)}
+            libraryStatus={activeTab === "practice" ? practiceLibraryStatus : libraryStatus}
+            emptyMessage={(activeTab === "practice" ? practiceLibraryStatus : libraryStatus) === "불러오는 중"
+              ? "곡 목록을 불러오고 있습니다." : "등록된 음원이 없습니다."}
             isAdmin={isAdminMode}
-            onUploadSong={uploadSongFile}
+            onUploadSong={(song, file) => uploadSongFile(song, file, activeTab)}
             onRenameSong={renameSong}
             onDeleteSong={deleteSong}
-            onReorderSongs={reorderSongs}
+            onReorderSongs={(from, to) => reorderSongs(from, to, activeTab)}
             onOpenLyrics={(song) => setLyricsSongId(song.id)}
           />
         )}
@@ -1463,6 +1512,7 @@ function App() {
 
       <PlayerBar
         selectedSong={playerSong}
+        audioSong={selectedMainSong}
         audioRef={audioRef}
         activeTab={playerMode}
         isPlaying={isPlaying}
@@ -1777,6 +1827,8 @@ function RecorderPanel({ audioRef, splitRefs, playbackMode, selectedSong }) {
   );
 }
 function PlayList({
+  title = "플레이리스트",
+  emptyMessage,
   songs,
   selectedSong,
   onSelect,
@@ -1793,7 +1845,7 @@ function PlayList({
   return (
     <section className="panel">
       <div className="section-title">
-        <h2>플레이리스트</h2>
+        <h2>{title}</h2>
         <div className="section-actions">
           <span>{libraryStatus}</span>
           {isAdmin && <div className="playlist-order-actions" aria-label="Selected song order">
@@ -1829,6 +1881,7 @@ function PlayList({
         </div>
       </div>
       <SongList
+        emptyMessage={emptyMessage}
         songs={songs}
         selectedSong={selectedSong}
         onSelect={onSelect}
@@ -2005,6 +2058,7 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
 }
 
 function SongList({
+  emptyMessage = "곡 목록을 불러오고 있습니다.",
   songs,
   selectedSong,
   onSelect,
@@ -2022,7 +2076,7 @@ function SongList({
   const [editingName, setEditingName] = useState("");
 
   if (!songs.length) {
-    return <div className="empty-list">곡 목록을 불러오고 있습니다.</div>;
+    return <div className="empty-list">{emptyMessage}</div>;
   }
 
   return (
@@ -3130,6 +3184,7 @@ function DrumPanel() {
 
 function PlayerBar({
   selectedSong,
+  audioSong,
   audioRef,
   activeTab,
   isPlaying,
@@ -3155,6 +3210,9 @@ function PlayerBar({
   cyclePlaySequenceMode,
   onEnded
 }) {
+  const canPlay = activeTab === "split"
+    ? Object.values(selectedSong.splitTracks ?? {}).some(Boolean)
+    : Boolean(audioSong.audioUrl);
   const abStartPercent =
     abLoop.start !== null && duration ? clamp((abLoop.start / duration) * 100, 0, 100) : null;
   const abEndPercent = abLoop.end !== null && duration ? clamp((abLoop.end / duration) * 100, 0, 100) : null;
@@ -3163,7 +3221,7 @@ function PlayerBar({
     <footer className={activeTab === "split" ? "player split-player" : "player play-player"}>
       <audio
         ref={audioRef}
-        src={selectedSong.audioUrl}
+        src={audioSong.audioUrl || undefined}
         crossOrigin="anonymous"
         preload="metadata"
         onLoadedMetadata={(event) => {
@@ -3184,7 +3242,7 @@ function PlayerBar({
         </span>
       </div>
       <div className="timeline-row">
-        <button className="timeline-button" title="처음부터 다시 재생" onClick={restartCurrent}>
+        <button className="timeline-button" title="처음부터 다시 재생" disabled={!canPlay} onClick={restartCurrent}>
           {"\u21ba"}
         </button>
         <div className="seek-wrap">
@@ -3289,6 +3347,7 @@ function PlayerBar({
         <button onClick={() => seekBy(-3)}>-3s</button>
         <button
           className={isPlaying ? "play-button playing" : "play-button paused"}
+          disabled={!canPlay}
           onClick={togglePlay}
           title={isPlaying ? "일시정지" : "재생"}
         >

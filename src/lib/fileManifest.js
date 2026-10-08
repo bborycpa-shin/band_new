@@ -98,8 +98,8 @@ export async function removeDisplayName(bucket, path) {
   await saveFileManifest(bucket, manifest);
 }
 
-export async function setManifestOrder(bucket, paths) {
+export async function setManifestOrder(bucket, paths, orderKey = "__order") {
   const manifest = await loadFileManifest(bucket);
-  manifest.__order = [...new Set(paths.filter(Boolean))];
+  manifest[orderKey] = [...new Set(paths.filter(Boolean))];
   await saveFileManifest(bucket, manifest);
 }

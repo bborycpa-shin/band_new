@@ -3,6 +3,11 @@ import { loadFileManifest, manifestFolder, manifestPath } from "./fileManifest";
 import { supabase, supabaseConfig } from "./supabase";
 
 const audioExtensions = [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm"];
+export const practiceFolder = "_practice";
+
+export function songOrderKey(library) {
+  return library === "practice" ? "__practiceOrder" : "__order";
+}
 
 function hasExtension(name, extensions) {
   return extensions.some((extension) => name.toLowerCase().endsWith(extension));
@@ -45,7 +50,7 @@ async function listAll(bucket, prefix = "") {
 
 export async function loadSupabaseSongs() {
   if (!supabase) {
-    return { songs: sampleSongs, source: "sample", error: "" };
+    return { songs: sampleSongs, practiceSongs: [], source: "sample", error: "" };
   }
 
   const audioBucket = supabaseConfig.buckets.audio;
@@ -57,41 +62,53 @@ export async function loadSupabaseSongs() {
     ]);
 
     const fullAudioFiles = audioFiles.filter((path) => hasExtension(path, audioExtensions));
-    const orderedAudioFiles = fullAudioFiles.sort((a, b) => {
-      const order = audioManifest.__order ?? [];
-      const ai = order.indexOf(a);
-      const bi = order.indexOf(b);
-      if (ai === -1 && bi === -1) return a.localeCompare(b);
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    });
+    function mapLibrary(library) {
+      const order = audioManifest[songOrderKey(library)] ?? [];
+      const orderedAudioFiles = fullAudioFiles
+        .filter((path) => path.startsWith(`${practiceFolder}/`) === (library === "practice"))
+        .sort((a, b) => {
+          const ai = order.indexOf(a);
+          const bi = order.indexOf(b);
+          if (ai === -1 && bi === -1) return a.localeCompare(b);
+          if (ai === -1) return 1;
+          if (bi === -1) return -1;
+          return ai - bi;
+        });
 
-    const mappedSongs = orderedAudioFiles.map((path, index) => {
-      const folder = path.includes("/") ? path.split("/")[0] : `song-${index + 1}`;
-      const title = audioManifest[path]?.displayName || titleFromPath(path) || folder;
+      return orderedAudioFiles.map((path, index) => {
+        const folder = library === "practice"
+          ? path.split("/").slice(0, 2).join("/")
+          : path.includes("/") ? path.split("/")[0] : `song-${index + 1}`;
+        const title = audioManifest[path]?.displayName || titleFromPath(path) || folder;
 
-      return {
-        id: folder || `song-${index + 1}`,
-        title,
-        artist: "",
-        audioPath: path,
-        audioUrl: publicUrl(audioBucket, path),
-        lyrics: audioManifest[path]?.lyrics || "",
-        splitTrackPaths: {},
-        splitTracks: {},
-        scores: [],
-        album: { images: [], youtubeId: "" },
-        partsReady: 0
-      };
-    });
+        return {
+          id: folder || `song-${index + 1}`,
+          library,
+          title,
+          artist: "",
+          audioPath: path,
+          audioUrl: publicUrl(audioBucket, path),
+          lyrics: audioManifest[path]?.lyrics || "",
+          splitTrackPaths: {},
+          splitTracks: {},
+          scores: [],
+          album: { images: [], youtubeId: "" },
+          partsReady: 0
+        };
+      });
+    }
+
+    const mappedSongs = mapLibrary("play");
+    const practiceSongs = mapLibrary("practice");
 
     return {
       songs: mappedSongs.length ? mappedSongs : sampleSongs,
+      practiceSongs,
+      practiceError: "",
       source: mappedSongs.length ? "supabase" : "sample",
       error: mappedSongs.length ? "" : "Supabase에서 음원 파일을 찾지 못해 샘플 목록을 표시합니다."
     };
   } catch (error) {
-    return { songs: sampleSongs, source: "sample", error: error.message };
+    return { songs: sampleSongs, practiceSongs: [], source: "sample", error: error.message, practiceError: error.message };
   }
 }
