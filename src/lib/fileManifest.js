@@ -72,10 +72,11 @@ export async function saveFileManifest(bucket, manifest) {
     .catch(() => {});
 }
 
-export async function setDisplayName(bucket, path, displayName) {
+export async function setDisplayName(bucket, path, displayName, metadata = {}) {
   const manifest = await loadFileManifest(bucket);
   manifest[path] = {
     ...(manifest[path] ?? {}),
+    ...metadata,
     displayName
   };
   await saveFileManifest(bucket, manifest);

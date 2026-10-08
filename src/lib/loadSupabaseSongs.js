@@ -65,7 +65,12 @@ export async function loadSupabaseSongs() {
     function mapLibrary(library) {
       const order = audioManifest[songOrderKey(library)] ?? [];
       const orderedAudioFiles = fullAudioFiles
-        .filter((path) => path.startsWith(`${practiceFolder}/`) === (library === "practice"))
+        .filter((path) => {
+          const savedLibrary = audioManifest[path]?.library;
+          const songLibrary = savedLibrary === "play" || savedLibrary === "practice"
+            ? savedLibrary : path.startsWith(`${practiceFolder}/`) ? "practice" : "play";
+          return songLibrary === library;
+        })
         .sort((a, b) => {
           const ai = order.indexOf(a);
           const bi = order.indexOf(b);
@@ -76,13 +81,13 @@ export async function loadSupabaseSongs() {
         });
 
       return orderedAudioFiles.map((path, index) => {
-        const folder = library === "practice"
+        const folder = path.startsWith(`${practiceFolder}/`)
           ? path.split("/").slice(0, 2).join("/")
           : path.includes("/") ? path.split("/")[0] : `song-${index + 1}`;
         const title = audioManifest[path]?.displayName || titleFromPath(path) || folder;
 
         return {
-          id: folder || `song-${index + 1}`,
+          id: audioManifest[path]?.songId || folder || `song-${index + 1}`,
           library,
           title,
           artist: "",
@@ -102,11 +107,11 @@ export async function loadSupabaseSongs() {
     const practiceSongs = mapLibrary("practice");
 
     return {
-      songs: mappedSongs.length ? mappedSongs : sampleSongs,
+      songs: mappedSongs,
       practiceSongs,
       practiceError: "",
-      source: mappedSongs.length ? "supabase" : "sample",
-      error: mappedSongs.length ? "" : "Supabase에서 음원 파일을 찾지 못해 샘플 목록을 표시합니다."
+      source: "supabase",
+      error: ""
     };
   } catch (error) {
     return { songs: sampleSongs, practiceSongs: [], source: "sample", error: error.message, practiceError: error.message };

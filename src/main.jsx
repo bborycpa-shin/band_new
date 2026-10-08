@@ -20,6 +20,7 @@ import {
   Trash2,
   ArrowDown,
   ArrowUp,
+  ArrowRightLeft,
   ChevronLeft,
   ChevronRight,
   FolderOpen,
@@ -246,6 +247,7 @@ function App() {
   const [practiceLibraryStatus, setPracticeLibraryStatus] = useState("불러오는 중");
   const [selectedPracticeId, setSelectedPracticeId] = useState("");
   const [mainLibraryMode, setMainLibraryMode] = useState("play");
+  const [movingSongPath, setMovingSongPath] = useState("");
   const [pendingPlayId, setPendingPlayId] = useState("");
   const [splitSongs, setSplitSongs] = useState([]);
   const [splitLibraryStatus, setSplitLibraryStatus] = useState("불러오는 중");
@@ -286,8 +288,10 @@ function App() {
   );
 
   const selectedSong = useMemo(
-    () => appSongs.find((song) => song.id === selectedId) ?? appSongs[0] ?? emptySong,
-    [appSongs, selectedId]
+    () => appSongs.find((song) => song.id === selectedId) ?? appSongs[0] ?? {
+      ...emptySong, title: libraryStatus === "불러오는 중" ? emptySong.title : "음원이 없습니다"
+    },
+    [appSongs, selectedId, libraryStatus]
   );
   const selectedPracticeSong = useMemo(
     () => practiceSongs.find((song) => song.id === selectedPracticeId) ?? practiceSongs[0] ?? {
@@ -853,7 +857,7 @@ function App() {
         window.alert(`업로드 실패: ${error.message}`);
         continue;
       }
-      await setDisplayName(bucket, path, item.name);
+      await setDisplayName(bucket, path, item.name, { library });
       uploaded.push({ folder, path });
     }
 
@@ -872,6 +876,63 @@ function App() {
     if (!supabase || !song.audioPath || !nextName.trim()) return;
     await setDisplayName(supabaseConfig.buckets.audio, song.audioPath, nextName.trim());
     await refreshLibrary(song.id, song.library ?? "play");
+  }
+
+  async function moveSongToLibrary(song) {
+    if (!isAdminMode || !supabase || !song.audioPath || movingSongPath) return;
+    const sourceLibrary = song.library ?? "play";
+    const targetLibrary = sourceLibrary === "practice" ? "play" : "practice";
+    const targetSongs = targetLibrary === "practice" ? practiceSongs : appSongs;
+    const sourceSongs = sourceLibrary === "practice" ? practiceSongs : appSongs;
+    setMovingSongPath(song.audioPath);
+
+    try {
+      const bucket = supabaseConfig.buckets.audio;
+      const manifest = await loadFileManifest(bucket);
+      // Root-level legacy files use numbered IDs; preserve them when the list changes.
+      for (const item of [...appSongs, ...practiceSongs]) {
+        if (item.audioPath && !item.audioPath.includes("/")) {
+          manifest[item.audioPath] = { ...(manifest[item.audioPath] ?? {}), songId: item.id };
+        }
+      }
+      manifest[song.audioPath] = {
+        ...(manifest[song.audioPath] ?? {}),
+        displayName: manifest[song.audioPath]?.displayName || song.title,
+        library: targetLibrary
+      };
+      const sourceKey = songOrderKey(sourceLibrary);
+      const targetKey = songOrderKey(targetLibrary);
+      manifest[sourceKey] = [...new Set([
+        ...(manifest[sourceKey] ?? []), ...sourceSongs.map((item) => item.audioPath)
+      ])].filter((path) => path && path !== song.audioPath);
+      manifest[targetKey] = [...new Set([
+        song.audioPath, ...(manifest[targetKey] ?? []), ...targetSongs.map((item) => item.audioPath)
+      ])].filter(Boolean);
+      await saveFileManifest(bucket, manifest);
+
+      if (selectedMainSong.audioPath === song.audioPath && playbackMode !== "split") {
+        pauseMainAudio();
+        setIsPlaying(false);
+        setPendingPlayId("");
+      }
+      const movedSong = { ...song, library: targetLibrary };
+      const updateSongs = (songs, library) => library === sourceLibrary
+        ? songs.filter((item) => item.audioPath !== song.audioPath)
+        : [movedSong, ...songs.filter((item) => item.audioPath !== song.audioPath)];
+      setAppSongs((songs) => updateSongs(songs, "play"));
+      setPracticeSongs((songs) => updateSongs(songs, "practice"));
+      setLibraryStatus(`음원 ${appSongs.length + (targetLibrary === "play" ? 1 : -1)}곡`);
+      setPracticeLibraryStatus(`음원 ${practiceSongs.length + (targetLibrary === "practice" ? 1 : -1)}곡`);
+      const sourceSelectedId = sourceLibrary === "practice" ? selectedPracticeId : selectedId;
+      if (sourceSelectedId === song.id) {
+        setMainSelectedId(sourceSongs.find((item) => item.audioPath !== song.audioPath)?.id ?? "", sourceLibrary);
+      }
+      if (!targetSongs.length) setMainSelectedId(song.id, targetLibrary);
+    } catch (error) {
+      window.alert(`곡 이동 실패: ${error.message}`);
+    } finally {
+      setMovingSongPath("");
+    }
   }
 
   async function saveSongLyrics(song, lyrics) {
@@ -1445,6 +1506,8 @@ function App() {
             onUploadSong={(song, file) => uploadSongFile(song, file, activeTab)}
             onRenameSong={renameSong}
             onDeleteSong={deleteSong}
+            onMoveSong={moveSongToLibrary}
+            movingSongPath={movingSongPath}
             onReorderSongs={(from, to) => reorderSongs(from, to, activeTab)}
             onOpenLyrics={(song) => setLyricsSongId(song.id)}
           />
@@ -1837,6 +1900,8 @@ function PlayList({
   onUploadSong,
   onRenameSong,
   onDeleteSong,
+  onMoveSong,
+  movingSongPath,
   onReorderSongs,
   onOpenLyrics
 }) {
@@ -1890,6 +1955,8 @@ function PlayList({
         onUploadSong={onUploadSong}
         onRenameSong={onRenameSong}
         onDeleteSong={onDeleteSong}
+        onMoveSong={onMoveSong}
+        movingSongPath={movingSongPath}
         onOpenLyrics={onOpenLyrics}
       />
     </section>
@@ -2068,6 +2135,8 @@ function SongList({
   onUploadSong,
   onRenameSong,
   onDeleteSong,
+  onMoveSong,
+  movingSongPath,
   onOpenLyrics,
   renderSongAction,
   renderAfterSong
@@ -2153,6 +2222,17 @@ function SongList({
                     </>
                   ) : (
                     <>
+                      {onMoveSong && (
+                        <button
+                          type="button"
+                          title={movingSongPath === song.audioPath ? "이동 중" : `${song.library === "practice" ? "재생" : "연습"} 탭으로 이동`}
+                          aria-label={`${song.library === "practice" ? "재생" : "연습"} 탭으로 이동`}
+                          disabled={Boolean(movingSongPath) || !song.audioPath}
+                          onClick={() => onMoveSong(song)}
+                        >
+                          <ArrowRightLeft size={15} />
+                        </button>
+                      )}
                       <label className="mini-file-button" title="음원 업로드">
                         <UploadCloud size={15} />
                         <input
