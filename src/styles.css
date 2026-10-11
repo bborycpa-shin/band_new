@@ -881,6 +881,95 @@ h1 {
   font-size: 0.8rem;
 }
 
+.practice-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.practice-selection-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid #dbe3ef;
+  border-radius: 5px;
+  color: #334155;
+  background: #f8fafc;
+  font: inherit;
+}
+
+.practice-selection-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+}
+
+.practice-selection-actions button {
+  width: 30px;
+  padding: 0;
+}
+
+.practice-selection-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.practice-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  cursor: pointer;
+}
+
+.practice-select-all input,
+.practice-song-check input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.practice-song-check {
+  display: grid;
+  align-self: stretch;
+  place-items: center;
+  cursor: pointer;
+}
+
+.song-row.multi-select,
+.song-row.multi-select.has-lyrics-action {
+  grid-template-columns: 26px minmax(0, 1fr) 28px;
+}
+
+.song-row.multi-select.selected {
+  border-color: #edf1f7;
+  background: #f8fafd;
+  box-shadow: none;
+}
+
+.song-row.multi-select.checked {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.practice-selection-toolbar button:focus-visible,
+.practice-song-check input:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
 .song-actions button,
 .lyrics-list-button,
 .mini-file-button,

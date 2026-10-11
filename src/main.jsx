@@ -49,8 +49,8 @@ import { loadSupabaseSheets } from "./lib/loadSupabaseSheets";
 import { createEmptyAlbum, loadSupabaseAlbums } from "./lib/loadSupabaseAlbums";
 import { instruments } from "./data/songs";
 import MetronomeWindow from "./components/MetronomeWindow";
-import { PracticeFolderToolbar, PracticeSongFolderDialog } from "./components/PracticeFolders";
-import { readPracticeFolders } from "./lib/practiceFolders";
+import { PracticeFolderToolbar, PracticeSelectionToolbar, PracticeSongFolderDialog } from "./components/PracticeFolders";
+import { mergePracticeSongOrder, readPracticeFolders, reorderPracticeSelection } from "./lib/practiceFolders";
 import "./styles.css";
 
 const tabs = [
@@ -253,6 +253,8 @@ function App() {
   const [selectedPracticeFolderId, setSelectedPracticeFolderId] = useState("__all");
   const [isPracticeFolderBusy, setIsPracticeFolderBusy] = useState(false);
   const [practiceFolderSong, setPracticeFolderSong] = useState(null);
+  const [isPracticeSelecting, setIsPracticeSelecting] = useState(false);
+  const [selectedPracticePaths, setSelectedPracticePaths] = useState(() => new Set());
   const [practiceLibraryStatus, setPracticeLibraryStatus] = useState("불러오는 중");
   const [selectedPracticeId, setSelectedPracticeId] = useState("");
   const [mainLibraryMode, setMainLibraryMode] = useState("play");
@@ -309,6 +311,17 @@ function App() {
       : practiceSongs.filter((song) => (song.practiceFolderId || "") === selectedPracticeFolderId),
     [practiceSongs, selectedPracticeFolderId]
   );
+  useEffect(() => {
+    setSelectedPracticePaths((paths) => {
+      const visiblePaths = new Set(visiblePracticeSongs.map((song) => song.audioPath));
+      const remaining = new Set([...paths].filter((path) => visiblePaths.has(path)));
+      return remaining.size === paths.size ? paths : remaining;
+    });
+  }, [visiblePracticeSongs]);
+  useEffect(() => {
+    setIsPracticeSelecting(false);
+    setSelectedPracticePaths(new Set());
+  }, [activeTab, isAdminMode]);
   const selectedPracticeSong = useMemo(
     () => visiblePracticeSongs.find((song) => song.id === selectedPracticeId) ?? visiblePracticeSongs[0] ?? {
       ...emptySong, title: "연습 음원이 없습니다"
@@ -859,6 +872,7 @@ function App() {
   }
 
   function changePracticeFolder(folderId) {
+    setSelectedPracticePaths(new Set());
     if (mainLibraryMode === "practice" && playbackMode !== "split") {
       pauseMainAudio();
       setIsPlaying(false);
@@ -944,30 +958,62 @@ function App() {
     }
   }
 
-  async function assignPracticeSongFolder(song, folderId) {
-    if (!isAdminMode || !supabase || song.library !== "practice" || !song.audioPath) {
+  async function assignPracticeSongFolder(songs, folderId) {
+    if (!isAdminMode || !supabase || isPracticeFolderBusy || !songs.length || songs.some((song) =>
+      song.library !== "practice" || !song.audioPath || !practiceSongs.some((item) => item.audioPath === song.audioPath))) {
       throw new Error("곡을 이동할 수 없습니다.");
     }
-    const bucket = supabaseConfig.buckets.audio;
-    const manifest = await loadFileManifest(bucket);
-    if (folderId && !readPracticeFolders(manifest).some((folder) => folder.id === folderId)) {
-      throw new Error("대상 폴더를 찾을 수 없습니다.");
+    setIsPracticeFolderBusy(true);
+    try {
+      const bucket = supabaseConfig.buckets.audio;
+      const manifest = await loadFileManifest(bucket);
+      if (folderId && !readPracticeFolders(manifest).some((folder) => folder.id === folderId)) {
+        throw new Error("대상 폴더를 찾을 수 없습니다.");
+      }
+      const paths = new Set(songs.map((song) => song.audioPath));
+      for (const path of paths) {
+        manifest[path] = { ...(manifest[path] ?? {}), practiceFolderId: folderId };
+      }
+      await saveFileManifest(bucket, manifest);
+      setPracticeSongs((items) => items.map((item) => paths.has(item.audioPath)
+        ? { ...item, practiceFolderId: folderId } : item));
+      setSelectedPracticePaths(new Set());
+    } finally {
+      setIsPracticeFolderBusy(false);
     }
-    manifest[song.audioPath] = { ...(manifest[song.audioPath] ?? {}), practiceFolderId: folderId };
-    await saveFileManifest(bucket, manifest);
-    setPracticeSongs((songs) => songs.map((item) => item.audioPath === song.audioPath
-      ? { ...item, practiceFolderId: folderId } : item));
+  }
+
+  async function savePracticeSongOrder(visibleSongs) {
+    if (!isAdminMode || !supabase || isPracticeFolderBusy || movingSongPath) return;
+    const reordered = mergePracticeSongOrder(practiceSongs, visibleSongs);
+    if (reordered.every((song, index) => song.audioPath === practiceSongs[index].audioPath)) return;
+    setIsPracticeFolderBusy(true);
+    try {
+      await setManifestOrder(supabaseConfig.buckets.audio,
+        reordered.map((song) => song.audioPath), songOrderKey("practice"));
+      setPracticeSongs(reordered);
+    } catch (error) {
+      window.alert(`순서 저장 실패: ${error.message}`);
+    } finally {
+      setIsPracticeFolderBusy(false);
+    }
   }
 
   function reorderVisiblePracticeSongs(from, to) {
-    const fromPath = visiblePracticeSongs[from]?.audioPath;
-    const toPath = visiblePracticeSongs[to]?.audioPath;
-    if (!fromPath || !toPath) return;
-    return reorderSongs(
-      practiceSongs.findIndex((song) => song.audioPath === fromPath),
-      practiceSongs.findIndex((song) => song.audioPath === toPath),
-      "practice"
-    );
+    if (from === to || !visiblePracticeSongs[from] || !visiblePracticeSongs[to]) return;
+    const reordered = [...visiblePracticeSongs];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+    return savePracticeSongOrder(reordered);
+  }
+
+  function togglePracticeSongSelection(song) {
+    setSelectedPracticePaths((paths) => {
+      const next = new Set(paths);
+      if (next.has(song.audioPath)) next.delete(song.audioPath);
+      else next.add(song.audioPath);
+      return next;
+    });
   }
 
   async function uploadSongFile(song, file, library = "play") {
@@ -1667,6 +1713,20 @@ function App() {
             onReorderSongs={(from, to) => activeTab === "practice"
               ? reorderVisiblePracticeSongs(from, to) : reorderSongs(from, to, "play")}
             onChooseSongFolder={activeTab === "practice" ? setPracticeFolderSong : undefined}
+            practiceSelection={activeTab === "practice" && isAdminMode ? {
+              active: isPracticeSelecting,
+              paths: selectedPracticePaths,
+              busy: isPracticeFolderBusy || Boolean(movingSongPath),
+              onToggle: () => {
+                setIsPracticeSelecting((active) => !active);
+                setSelectedPracticePaths(new Set());
+              },
+              onToggleSong: togglePracticeSongSelection,
+              onToggleAll: () => setSelectedPracticePaths((paths) => paths.size === visiblePracticeSongs.length
+                ? new Set() : new Set(visiblePracticeSongs.map((song) => song.audioPath))),
+              onMove: () => setPracticeFolderSong(visiblePracticeSongs.filter((song) => selectedPracticePaths.has(song.audioPath))),
+              onReorder: (direction) => savePracticeSongOrder(reorderPracticeSelection(visiblePracticeSongs, selectedPracticePaths, direction))
+            } : undefined}
             onOpenLyrics={(song) => {
               setLyricsSongId(song.id);
               setActiveFloatingWindow("lyrics");
@@ -1782,7 +1842,8 @@ function App() {
       )}
       {isAdminMode && practiceFolderSong && (
         <PracticeSongFolderDialog
-          song={practiceFolderSong} folders={practiceFolders} onMove={assignPracticeSongFolder}
+          songs={Array.isArray(practiceFolderSong) ? practiceFolderSong : [practiceFolderSong]}
+          folders={practiceFolders} onMove={assignPracticeSongFolder}
           onClose={() => setPracticeFolderSong(null)}
         />
       )}
@@ -2082,7 +2143,8 @@ function PlayList({
   movingSongPath,
   onReorderSongs,
   onOpenLyrics,
-  onChooseSongFolder
+  onChooseSongFolder,
+  practiceSelection
 }) {
   const selectedIndex = songs.findIndex((song) => song.id === selectedSong.id);
 
@@ -2092,11 +2154,11 @@ function PlayList({
         <h2>{title}</h2>
         <div className="section-actions">
           <span>{libraryStatus}</span>
-          {isAdmin && <div className="playlist-order-actions" aria-label="Selected song order">
+          {isAdmin && !practiceSelection?.active && <div className="playlist-order-actions" aria-label="Selected song order">
             <button
               type="button"
               title="Move selected song up"
-              disabled={selectedIndex <= 0}
+              disabled={practiceSelection?.busy || selectedIndex <= 0}
               onClick={() => onReorderSongs?.(selectedIndex, selectedIndex - 1)}
             >
               <ArrowUp size={15} />
@@ -2104,7 +2166,7 @@ function PlayList({
             <button
               type="button"
               title="Move selected song down"
-              disabled={selectedIndex === -1 || selectedIndex >= songs.length - 1}
+              disabled={practiceSelection?.busy || selectedIndex === -1 || selectedIndex >= songs.length - 1}
               onClick={() => onReorderSongs?.(selectedIndex, selectedIndex + 1)}
             >
               <ArrowDown size={15} />
@@ -2116,6 +2178,7 @@ function PlayList({
               type="file"
               accept="audio/*"
               multiple
+              disabled={practiceSelection?.busy}
               onChange={(event) => {
                 onUploadSong?.(null, event.target.files);
                 event.target.value = "";
@@ -2125,6 +2188,7 @@ function PlayList({
         </div>
       </div>
       {folderControls}
+      {practiceSelection && <PracticeSelectionToolbar songs={songs} selection={practiceSelection} />}
       <SongList
         emptyMessage={emptyMessage}
         songs={songs}
@@ -2139,6 +2203,7 @@ function PlayList({
         movingSongPath={movingSongPath}
         onOpenLyrics={onOpenLyrics}
         onChooseSongFolder={onChooseSongFolder}
+        selection={practiceSelection}
       />
     </section>
   );
@@ -2322,11 +2387,19 @@ function SongList({
   movingSongPath,
   onOpenLyrics,
   onChooseSongFolder,
+  selection,
   renderSongAction,
   renderAfterSong
 }) {
   const [editingId, setEditingId] = useState("");
   const [editingName, setEditingName] = useState("");
+  useEffect(() => { if (selection?.active) setEditingId(""); }, [selection?.active]);
+
+  function handleSelect(song) {
+    if (selection?.busy) return;
+    if (selection?.active) selection.onToggleSong(song);
+    else onSelect(song);
+  }
 
   if (!songs.length) {
     return <div className="empty-list">{emptyMessage}</div>;
@@ -2344,21 +2417,29 @@ function SongList({
                 selectedSong.id === song.id ? "selected" : "",
                 editable ? "editable" : "",
                 editable && onChooseSongFolder ? "has-folder-action" : "",
+                selection?.active ? "multi-select" : "",
+                selection?.active && selection.paths.has(song.audioPath) ? "checked" : "",
                 mode === "play" && onOpenLyrics ? "has-lyrics-action" : "",
                 renderSongAction ? "with-action" : ""
               ]
                 .filter(Boolean)
                 .join(" ")}
-              onClick={() => onSelect(song)}
+              onClick={() => handleSelect(song)}
             >
-              <span className="song-number">{index + 1}</span>
+              {selection?.active ? (
+                <label className="practice-song-check" onClick={(event) => event.stopPropagation()}>
+                  <input type="checkbox" aria-label={`${song.title} 선택`} checked={selection.paths.has(song.audioPath)}
+                    disabled={selection.busy} onChange={() => selection.onToggleSong(song)} />
+                </label>
+              ) : <span className="song-number">{index + 1}</span>}
               <button
                 className="song-main"
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onSelect(song);
+                  handleSelect(song);
                 }}
+                disabled={selection?.busy}
               >
                 {isEditing ? (
                   <input
@@ -2388,7 +2469,7 @@ function SongList({
                   <FileText size={15} />
                 </button>
               )}
-              {editable && (
+              {editable && !selection?.active && (
                 <div className="song-actions" onClick={(event) => event.stopPropagation()}>
                   {isEditing ? (
                     <>
@@ -2408,7 +2489,7 @@ function SongList({
                   ) : (
                     <>
                       {onChooseSongFolder && (
-                        <button type="button" title="곡의 연습 폴더 변경" disabled={!song.audioPath} onClick={() => onChooseSongFolder(song)}>
+                        <button type="button" title="곡의 연습 폴더 변경" disabled={selection?.busy || !song.audioPath} onClick={() => onChooseSongFolder(song)}>
                           <FolderInput size={15} />
                         </button>
                       )}
@@ -2417,7 +2498,7 @@ function SongList({
                           type="button"
                           title={movingSongPath === song.audioPath ? "이동 중" : `${song.library === "practice" ? "재생" : "연습"} 탭으로 이동`}
                           aria-label={`${song.library === "practice" ? "재생" : "연습"} 탭으로 이동`}
-                          disabled={Boolean(movingSongPath) || !song.audioPath}
+                          disabled={selection?.busy || Boolean(movingSongPath) || !song.audioPath}
                           onClick={() => onMoveSong(song)}
                         >
                           <ArrowRightLeft size={15} />
@@ -2428,6 +2509,7 @@ function SongList({
                         <input
                           type="file"
                           accept="audio/*"
+                          disabled={selection?.busy}
                           onChange={(event) => {
                             onUploadSong?.(song, event.target.files?.[0]);
                             event.target.value = "";
@@ -2437,6 +2519,7 @@ function SongList({
                       <button
                         type="button"
                         title="이름 변경"
+                        disabled={selection?.busy}
                         onClick={() => {
                           setEditingId(song.id);
                           setEditingName(song.title);
@@ -2444,7 +2527,7 @@ function SongList({
                       >
                         <Pencil size={15} />
                       </button>
-                      <button type="button" title="삭제" onClick={() => onDeleteSong?.(song)}>
+                      <button type="button" title="삭제" disabled={selection?.busy} onClick={() => onDeleteSong?.(song)}>
                         <Trash2 size={15} />
                       </button>
                     </>

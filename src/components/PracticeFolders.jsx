@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { FolderInput, FolderOpen, FolderPlus, Pencil, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, FolderInput, FolderOpen, FolderPlus, ListChecks, Pencil, Trash2, X } from "lucide-react";
+import { reorderPracticeSelection } from "../lib/practiceFolders";
 
 export function PracticeFolderToolbar({ folders, songs, selectedId, isAdmin, busy, onSelect, onAdd, onRename, onDelete }) {
   const selectedFolder = folders.find((folder) => folder.id === selectedId);
@@ -28,8 +29,53 @@ export function PracticeFolderToolbar({ folders, songs, selectedId, isAdmin, bus
   );
 }
 
-export function PracticeSongFolderDialog({ song, folders, onMove, onClose }) {
-  const [folderId, setFolderId] = useState(song.practiceFolderId || "");
+export function PracticeSelectionToolbar({ songs, selection }) {
+  const { active, paths, busy, onToggle, onToggleAll, onMove, onReorder } = selection;
+  const count = songs.filter((song) => paths.has(song.audioPath)).length;
+  const selectAllRef = useRef(null);
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = count > 0 && count < songs.length;
+  }, [count, songs.length]);
+
+  if (!active) {
+    return (
+      <div className="practice-selection-toolbar">
+        <button type="button" onClick={onToggle} disabled={busy || !songs.length}>
+          <ListChecks size={17} />여러 곡 선택
+        </button>
+      </div>
+    );
+  }
+
+  const orderButtons = [
+    ["top", "선택한 곡 맨 위로", ArrowUpToLine],
+    ["up", "선택한 곡 위로", ArrowUp],
+    ["down", "선택한 곡 아래로", ArrowDown],
+    ["bottom", "선택한 곡 맨 아래로", ArrowDownToLine]
+  ];
+  return (
+    <div className="practice-selection-toolbar" aria-label="여러 곡 관리" aria-busy={busy}>
+      <label className="practice-select-all">
+        <input ref={selectAllRef} type="checkbox" aria-label="현재 폴더 곡 전체 선택"
+          checked={songs.length > 0 && count === songs.length} disabled={busy || !songs.length} onChange={onToggleAll} />
+        <span aria-live="polite">{count}곡 선택</span>
+      </label>
+      <div className="practice-selection-actions">
+        <button type="button" title="선택한 곡 폴더 이동" disabled={busy || !count} onClick={onMove}><FolderInput size={17} /></button>
+        {orderButtons.map(([direction, title, Icon]) => {
+          const nextOrder = reorderPracticeSelection(songs, paths, direction);
+          const unchanged = nextOrder.every((song, index) => song.audioPath === songs[index].audioPath);
+          return <button key={direction} type="button" title={title} disabled={busy || !count || unchanged}
+            onClick={() => onReorder(direction)}><Icon size={17} /></button>;
+        })}
+        <button type="button" title="여러 곡 선택 종료" disabled={busy} onClick={onToggle}><X size={18} /></button>
+      </div>
+    </div>
+  );
+}
+
+export function PracticeSongFolderDialog({ songs, folders, onMove, onClose }) {
+  const [folderId, setFolderId] = useState(songs[0].practiceFolderId || "");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const dialogRef = useRef(null);
@@ -45,7 +91,7 @@ export function PracticeSongFolderDialog({ song, folders, onMove, onClose }) {
     setIsSaving(true);
     setError("");
     try {
-      await onMove(song, folderId);
+      await onMove(songs, folderId);
       onClose();
     } catch (failure) {
       setError(failure.message);
@@ -64,7 +110,7 @@ export function PracticeSongFolderDialog({ song, folders, onMove, onClose }) {
           <h2 id="practice-folder-dialog-title">연습 폴더로 이동</h2>
           <button type="button" title="폴더 이동창 닫기" onClick={onClose} disabled={isSaving}><X size={19} /></button>
         </div>
-        <p className="practice-folder-song-title">{song.title}</p>
+        <p className="practice-folder-song-title">{songs.length === 1 ? songs[0].title : `${songs.length}곡 선택`}</p>
         <label htmlFor="practice-folder-destination">이동할 폴더</label>
         <select
           id="practice-folder-destination" value={folderId} disabled={isSaving}
@@ -76,7 +122,7 @@ export function PracticeSongFolderDialog({ song, folders, onMove, onClose }) {
         {error && <p className="practice-folder-error" role="alert">{error}</p>}
         <div className="practice-folder-dialog-actions">
           <button type="button" onClick={onClose} disabled={isSaving}>취소</button>
-          <button type="submit" className="practice-folder-save" disabled={isSaving || folderId === (song.practiceFolderId || "")}>
+          <button type="submit" className="practice-folder-save" disabled={isSaving || songs.every((song) => folderId === (song.practiceFolderId || ""))}>
             <FolderInput size={16} />{isSaving ? "이동 중" : "이동"}
           </button>
         </div>
