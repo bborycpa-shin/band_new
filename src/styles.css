@@ -727,6 +727,160 @@ h1 {
   gap: 3px;
 }
 
+.practice-folder-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #64748b;
+}
+
+.practice-folder-toolbar > svg {
+  flex: 0 0 auto;
+}
+
+.practice-folder-toolbar select {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  height: 32px;
+  padding: 0 6px;
+  border: 1px solid #dbe3ef;
+  border-radius: 5px;
+  color: #25314a;
+  background: #f8fafc;
+  font: inherit;
+  font-size: 0.84rem;
+}
+
+.practice-folder-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+}
+
+.practice-folder-actions button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: #334155;
+  background: #edf2fa;
+}
+
+.practice-folder-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.song-row.has-folder-action .song-actions button,
+.song-row.has-folder-action .mini-file-button {
+  width: 24px;
+  min-width: 24px;
+  padding: 0;
+}
+
+.practice-folder-dialog {
+  width: min(340px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #182033;
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgba(24, 32, 51, 0.2);
+}
+
+.practice-folder-dialog::backdrop {
+  background: rgba(24, 32, 51, 0.36);
+}
+
+.practice-folder-dialog form {
+  display: grid;
+  gap: 12px;
+}
+
+.practice-folder-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.practice-folder-dialog-head h2 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.practice-folder-dialog button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 5px;
+  color: #334155;
+  background: #edf2fa;
+}
+
+.practice-folder-dialog-head button {
+  width: 30px;
+  padding: 0;
+}
+
+.practice-folder-song-title {
+  overflow-wrap: anywhere;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.practice-folder-dialog label {
+  font-size: 0.85rem;
+}
+
+.practice-folder-dialog select {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  color: #25314a;
+  background: #f8fafc;
+  font: inherit;
+}
+
+.practice-folder-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.practice-folder-dialog .practice-folder-save {
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.practice-folder-dialog button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.practice-folder-error {
+  color: #b91c1c;
+  font-size: 0.8rem;
+}
+
 .song-actions button,
 .lyrics-list-button,
 .mini-file-button,

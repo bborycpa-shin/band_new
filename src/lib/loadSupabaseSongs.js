@@ -1,6 +1,7 @@
 import { sampleSongs } from "../data/songs";
 import { loadFileManifest, manifestFolder, manifestPath } from "./fileManifest";
 import { supabase, supabaseConfig } from "./supabase";
+import { readPracticeFolders } from "./practiceFolders";
 
 const audioExtensions = [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm"];
 export const practiceFolder = "_practice";
@@ -50,7 +51,7 @@ async function listAll(bucket, prefix = "") {
 
 export async function loadSupabaseSongs() {
   if (!supabase) {
-    return { songs: sampleSongs, practiceSongs: [], source: "sample", error: "" };
+    return { songs: sampleSongs, practiceSongs: [], practiceFolders: [], source: "sample", error: "" };
   }
 
   const audioBucket = supabaseConfig.buckets.audio;
@@ -62,6 +63,8 @@ export async function loadSupabaseSongs() {
     ]);
 
     const fullAudioFiles = audioFiles.filter((path) => hasExtension(path, audioExtensions));
+    const practiceFolders = readPracticeFolders(audioManifest);
+    const practiceFolderIds = new Set(practiceFolders.map((folder) => folder.id));
     function mapLibrary(library) {
       const order = audioManifest[songOrderKey(library)] ?? [];
       const orderedAudioFiles = fullAudioFiles
@@ -89,6 +92,8 @@ export async function loadSupabaseSongs() {
         return {
           id: audioManifest[path]?.songId || folder || `song-${index + 1}`,
           library,
+          practiceFolderId: practiceFolderIds.has(audioManifest[path]?.practiceFolderId)
+            ? audioManifest[path].practiceFolderId : "",
           title,
           artist: "",
           audioPath: path,
@@ -109,11 +114,12 @@ export async function loadSupabaseSongs() {
     return {
       songs: mappedSongs,
       practiceSongs,
+      practiceFolders,
       practiceError: "",
       source: "supabase",
       error: ""
     };
   } catch (error) {
-    return { songs: sampleSongs, practiceSongs: [], source: "sample", error: error.message, practiceError: error.message };
+    return { songs: sampleSongs, practiceSongs: [], practiceFolders: [], source: "sample", error: error.message, practiceError: error.message };
   }
 }

@@ -25,6 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderOpen,
+  FolderInput,
   UploadCloud,
   Unlock,
   Volume2,
@@ -48,6 +49,8 @@ import { loadSupabaseSheets } from "./lib/loadSupabaseSheets";
 import { createEmptyAlbum, loadSupabaseAlbums } from "./lib/loadSupabaseAlbums";
 import { instruments } from "./data/songs";
 import MetronomeWindow from "./components/MetronomeWindow";
+import { PracticeFolderToolbar, PracticeSongFolderDialog } from "./components/PracticeFolders";
+import { readPracticeFolders } from "./lib/practiceFolders";
 import "./styles.css";
 
 const tabs = [
@@ -68,7 +71,7 @@ const playSequenceLabels = {
   "song-once": "1\uace1",
   "song-repeat": "1\uace1\u21bb"
 };
-const adminPasswordHashKey = "band-admin-password-hash";
+const adminPasswordHash = "f13c472ce9b5c1ef46b543b44f44480597932f49ba70be45e0f613fbd7cd1817";
 const albumAccessKeyPrefix = "band-album-access-unlocked:";
 const defaultAlbumQuestion = "2026년 여름공연시 베이스기타 멤버이름은?(Hint:손**)";
 const defaultAlbumAnswer = "손상이";
@@ -246,6 +249,10 @@ function App() {
   const [libraryStatus, setLibraryStatus] = useState("불러오는 중");
   const [selectedId, setSelectedId] = useState("");
   const [practiceSongs, setPracticeSongs] = useState([]);
+  const [practiceFolders, setPracticeFolders] = useState([]);
+  const [selectedPracticeFolderId, setSelectedPracticeFolderId] = useState("__all");
+  const [isPracticeFolderBusy, setIsPracticeFolderBusy] = useState(false);
+  const [practiceFolderSong, setPracticeFolderSong] = useState(null);
   const [practiceLibraryStatus, setPracticeLibraryStatus] = useState("불러오는 중");
   const [selectedPracticeId, setSelectedPracticeId] = useState("");
   const [mainLibraryMode, setMainLibraryMode] = useState("play");
@@ -297,13 +304,18 @@ function App() {
     },
     [appSongs, selectedId, libraryStatus]
   );
+  const visiblePracticeSongs = useMemo(
+    () => selectedPracticeFolderId === "__all" ? practiceSongs
+      : practiceSongs.filter((song) => (song.practiceFolderId || "") === selectedPracticeFolderId),
+    [practiceSongs, selectedPracticeFolderId]
+  );
   const selectedPracticeSong = useMemo(
-    () => practiceSongs.find((song) => song.id === selectedPracticeId) ?? practiceSongs[0] ?? {
+    () => visiblePracticeSongs.find((song) => song.id === selectedPracticeId) ?? visiblePracticeSongs[0] ?? {
       ...emptySong, title: "연습 음원이 없습니다"
     },
-    [practiceSongs, selectedPracticeId]
+    [visiblePracticeSongs, selectedPracticeId]
   );
-  const mainSongs = mainLibraryMode === "practice" ? practiceSongs : appSongs;
+  const mainSongs = mainLibraryMode === "practice" ? visiblePracticeSongs : appSongs;
   const selectedMainSong = mainLibraryMode === "practice" ? selectedPracticeSong : selectedSong;
 
   function setMainSelectedId(id, library = mainLibraryMode) {
@@ -323,6 +335,11 @@ function App() {
     const result = await loadSupabaseSongs();
     setAppSongs(result.songs);
     setPracticeSongs(result.practiceSongs);
+    setPracticeFolders(result.practiceFolders);
+    if (selectedPracticeFolderId !== "__all" && selectedPracticeFolderId &&
+      !result.practiceFolders.some((folder) => folder.id === selectedPracticeFolderId)) {
+      setSelectedPracticeFolderId("");
+    }
     const nextId = library === "play" && nextSelectedId !== undefined ? nextSelectedId : selectedId;
     const nextPracticeId = library === "practice" && nextSelectedId !== undefined
       ? nextSelectedId : selectedPracticeId;
@@ -428,7 +445,7 @@ function App() {
   }, [rate, keyShift, splitVolumes, splitMuted, selectedSplitSong]);
 
   useEffect(() => {
-    if (activeTab === "split" && playbackMode === "split") return;
+    if (playbackMode === "split" && (isPlaying || activeTab === "split")) return;
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
@@ -841,6 +858,118 @@ function App() {
     setSplitVolumes(Object.fromEntries(instruments.map((instrument) => [instrument.key, value])));
   }
 
+  function changePracticeFolder(folderId) {
+    if (mainLibraryMode === "practice" && playbackMode !== "split") {
+      pauseMainAudio();
+      setIsPlaying(false);
+      setPendingPlayId("");
+    }
+    setSelectedPracticeFolderId(folderId);
+    const songs = folderId === "__all" ? practiceSongs
+      : practiceSongs.filter((song) => (song.practiceFolderId || "") === folderId);
+    setSelectedPracticeId(songs[0]?.id ?? "");
+  }
+
+  async function addPracticeFolder() {
+    if (!isAdminMode || !supabase || isPracticeFolderBusy) return;
+    const title = window.prompt("새 연습 폴더 이름을 입력하세요.")?.trim();
+    if (!title) return;
+    setIsPracticeFolderBusy(true);
+    try {
+      const bucket = supabaseConfig.buckets.audio;
+      const manifest = await loadFileManifest(bucket);
+      if (readPracticeFolders(manifest).some((folder) => folder.title === title)) {
+        throw new Error("같은 이름의 폴더가 이미 있습니다.");
+      }
+      const id = `practice-group-${crypto.randomUUID()}`;
+      manifest.__practiceFolders = {
+        ...(manifest.__practiceFolders ?? {}), [id]: { title, createdAt: new Date().toISOString() }
+      };
+      await saveFileManifest(bucket, manifest);
+      setPracticeFolders(readPracticeFolders(manifest));
+      changePracticeFolder(id);
+    } catch (error) {
+      window.alert(`폴더 생성 실패: ${error.message}`);
+    } finally {
+      setIsPracticeFolderBusy(false);
+    }
+  }
+
+  async function renamePracticeFolder(folder) {
+    if (!isAdminMode || !supabase || !folder || isPracticeFolderBusy) return;
+    const title = window.prompt("연습 폴더 이름을 변경하세요.", folder.title)?.trim();
+    if (!title || title === folder.title) return;
+    setIsPracticeFolderBusy(true);
+    try {
+      const bucket = supabaseConfig.buckets.audio;
+      const manifest = await loadFileManifest(bucket);
+      if (!manifest.__practiceFolders?.[folder.id]) throw new Error("폴더를 찾을 수 없습니다.");
+      if (readPracticeFolders(manifest).some((item) => item.id !== folder.id && item.title === title)) {
+        throw new Error("같은 이름의 폴더가 이미 있습니다.");
+      }
+      manifest.__practiceFolders[folder.id] = { ...manifest.__practiceFolders[folder.id], title };
+      await saveFileManifest(bucket, manifest);
+      setPracticeFolders(readPracticeFolders(manifest));
+    } catch (error) {
+      window.alert(`폴더 이름 변경 실패: ${error.message}`);
+    } finally {
+      setIsPracticeFolderBusy(false);
+    }
+  }
+
+  async function deletePracticeFolder(folder) {
+    if (!isAdminMode || !supabase || !folder || isPracticeFolderBusy) return;
+    if (!window.confirm(`${folder.title} 폴더를 삭제할까요? 폴더 안의 곡은 미분류로 이동하며 음원은 삭제되지 않습니다.`)) return;
+    setIsPracticeFolderBusy(true);
+    try {
+      const bucket = supabaseConfig.buckets.audio;
+      const manifest = await loadFileManifest(bucket);
+      delete manifest.__practiceFolders?.[folder.id];
+      for (const [path, metadata] of Object.entries(manifest)) {
+        if (!path.startsWith("__") && metadata?.practiceFolderId === folder.id) {
+          manifest[path] = { ...metadata, practiceFolderId: "" };
+        }
+      }
+      await saveFileManifest(bucket, manifest);
+      const clearFolder = (songs) => songs.map((song) => song.practiceFolderId === folder.id
+        ? { ...song, practiceFolderId: "" } : song);
+      setPracticeFolders(readPracticeFolders(manifest));
+      setPracticeSongs(clearFolder);
+      setAppSongs(clearFolder);
+      if (selectedPracticeFolderId === folder.id) setSelectedPracticeFolderId("");
+    } catch (error) {
+      window.alert(`폴더 삭제 실패: ${error.message}`);
+    } finally {
+      setIsPracticeFolderBusy(false);
+    }
+  }
+
+  async function assignPracticeSongFolder(song, folderId) {
+    if (!isAdminMode || !supabase || song.library !== "practice" || !song.audioPath) {
+      throw new Error("곡을 이동할 수 없습니다.");
+    }
+    const bucket = supabaseConfig.buckets.audio;
+    const manifest = await loadFileManifest(bucket);
+    if (folderId && !readPracticeFolders(manifest).some((folder) => folder.id === folderId)) {
+      throw new Error("대상 폴더를 찾을 수 없습니다.");
+    }
+    manifest[song.audioPath] = { ...(manifest[song.audioPath] ?? {}), practiceFolderId: folderId };
+    await saveFileManifest(bucket, manifest);
+    setPracticeSongs((songs) => songs.map((item) => item.audioPath === song.audioPath
+      ? { ...item, practiceFolderId: folderId } : item));
+  }
+
+  function reorderVisiblePracticeSongs(from, to) {
+    const fromPath = visiblePracticeSongs[from]?.audioPath;
+    const toPath = visiblePracticeSongs[to]?.audioPath;
+    if (!fromPath || !toPath) return;
+    return reorderSongs(
+      practiceSongs.findIndex((song) => song.audioPath === fromPath),
+      practiceSongs.findIndex((song) => song.audioPath === toPath),
+      "practice"
+    );
+  }
+
   async function uploadSongFile(song, file, library = "play") {
     const files = Array.from(file instanceof FileList ? file : file ? [file] : []);
     if (!supabase || !files.length) return;
@@ -861,7 +990,11 @@ function App() {
         window.alert(`업로드 실패: ${error.message}`);
         continue;
       }
-      await setDisplayName(bucket, path, item.name, { library });
+      await setDisplayName(bucket, path, item.name, {
+        library,
+        practiceFolderId: song?.practiceFolderId ??
+          (library === "practice" && selectedPracticeFolderId !== "__all" ? selectedPracticeFolderId : "")
+      });
       uploaded.push({ folder, path });
     }
 
@@ -888,6 +1021,8 @@ function App() {
     const targetLibrary = sourceLibrary === "practice" ? "play" : "practice";
     const targetSongs = targetLibrary === "practice" ? practiceSongs : appSongs;
     const sourceSongs = sourceLibrary === "practice" ? practiceSongs : appSongs;
+    const nextPracticeFolderId = targetLibrary === "practice" && selectedPracticeFolderId !== "__all"
+      ? selectedPracticeFolderId : song.practiceFolderId || "";
     setMovingSongPath(song.audioPath);
 
     try {
@@ -902,7 +1037,8 @@ function App() {
       manifest[song.audioPath] = {
         ...(manifest[song.audioPath] ?? {}),
         displayName: manifest[song.audioPath]?.displayName || song.title,
-        library: targetLibrary
+        library: targetLibrary,
+        practiceFolderId: nextPracticeFolderId
       };
       const sourceKey = songOrderKey(sourceLibrary);
       const targetKey = songOrderKey(targetLibrary);
@@ -919,7 +1055,7 @@ function App() {
         setIsPlaying(false);
         setPendingPlayId("");
       }
-      const movedSong = { ...song, library: targetLibrary };
+      const movedSong = { ...song, library: targetLibrary, practiceFolderId: nextPracticeFolderId };
       const updateSongs = (songs, library) => library === sourceLibrary
         ? songs.filter((item) => item.audioPath !== song.audioPath)
         : [movedSong, ...songs.filter((item) => item.audioPath !== song.audioPath)];
@@ -1408,21 +1544,13 @@ function App() {
   async function toggleAdminMode() {
     if (isAdminMode) {
       setIsAdminMode(false);
-      return;
-    }
-
-    const savedHash = localStorage.getItem(adminPasswordHashKey);
-    if (!savedHash) {
-      const newPassword = window.prompt("\uad00\ub9ac\uc790 \ube44\ubc00\ubc88\ud638\ub97c \ucc98\uc74c \uc124\uc815\ud558\uc138\uc694.");
-      if (!newPassword) return;
-      localStorage.setItem(adminPasswordHashKey, await hashText(newPassword));
-      setIsAdminMode(true);
+      setPracticeFolderSong(null);
       return;
     }
 
     const password = window.prompt("\uad00\ub9ac\uc790 \ube44\ubc00\ubc88\ud638\ub97c \uc785\ub825\ud558\uc138\uc694.");
     if (password === null) return;
-    if ((await hashText(password)) === savedHash) {
+    if ((await hashText(password)) === adminPasswordHash) {
       setIsAdminMode(true);
       return;
     }
@@ -1514,19 +1642,31 @@ function App() {
           <PlayList
             key={activeTab}
             title={activeTab === "practice" ? "연습 플레이리스트" : "플레이리스트"}
-            songs={activeTab === "practice" ? practiceSongs : appSongs}
+            songs={activeTab === "practice" ? visiblePracticeSongs : appSongs}
             selectedSong={activeTab === "practice" ? selectedPracticeSong : selectedSong}
             onSelect={(song) => selectSong(song, activeTab)}
-            libraryStatus={activeTab === "practice" ? practiceLibraryStatus : libraryStatus}
+            libraryStatus={activeTab === "practice" ? practiceLibraryStatus.startsWith("음원 ")
+              ? `음원 ${visiblePracticeSongs.length}곡` : practiceLibraryStatus : libraryStatus}
             emptyMessage={(activeTab === "practice" ? practiceLibraryStatus : libraryStatus) === "불러오는 중"
-              ? "곡 목록을 불러오고 있습니다." : "등록된 음원이 없습니다."}
+              ? "곡 목록을 불러오고 있습니다." : activeTab === "practice" && selectedPracticeFolderId !== "__all"
+                ? "이 폴더에 등록된 음원이 없습니다." : "등록된 음원이 없습니다."}
+            folderControls={activeTab === "practice" && (
+              <PracticeFolderToolbar
+                folders={practiceFolders} songs={practiceSongs} selectedId={selectedPracticeFolderId}
+                isAdmin={isAdminMode} busy={isPracticeFolderBusy || Boolean(movingSongPath)}
+                onSelect={changePracticeFolder} onAdd={addPracticeFolder}
+                onRename={renamePracticeFolder} onDelete={deletePracticeFolder}
+              />
+            )}
             isAdmin={isAdminMode}
             onUploadSong={(song, file) => uploadSongFile(song, file, activeTab)}
             onRenameSong={renameSong}
             onDeleteSong={deleteSong}
             onMoveSong={moveSongToLibrary}
             movingSongPath={movingSongPath}
-            onReorderSongs={(from, to) => reorderSongs(from, to, activeTab)}
+            onReorderSongs={(from, to) => activeTab === "practice"
+              ? reorderVisiblePracticeSongs(from, to) : reorderSongs(from, to, "play")}
+            onChooseSongFolder={activeTab === "practice" ? setPracticeFolderSong : undefined}
             onOpenLyrics={(song) => {
               setLyricsSongId(song.id);
               setActiveFloatingWindow("lyrics");
@@ -1638,6 +1778,12 @@ function App() {
           isActive={activeFloatingWindow === "metronome"}
           onFocus={() => setActiveFloatingWindow("metronome")}
           onClose={() => setIsMetronomeOpen(false)}
+        />
+      )}
+      {isAdminMode && practiceFolderSong && (
+        <PracticeSongFolderDialog
+          song={practiceFolderSong} folders={practiceFolders} onMove={assignPracticeSongFolder}
+          onClose={() => setPracticeFolderSong(null)}
         />
       )}
     </div>
@@ -1922,6 +2068,7 @@ function RecorderPanel({ audioRef, splitRefs, playbackMode, selectedSong }) {
 }
 function PlayList({
   title = "플레이리스트",
+  folderControls,
   emptyMessage,
   songs,
   selectedSong,
@@ -1934,7 +2081,8 @@ function PlayList({
   onMoveSong,
   movingSongPath,
   onReorderSongs,
-  onOpenLyrics
+  onOpenLyrics,
+  onChooseSongFolder
 }) {
   const selectedIndex = songs.findIndex((song) => song.id === selectedSong.id);
 
@@ -1976,6 +2124,7 @@ function PlayList({
           </label>}
         </div>
       </div>
+      {folderControls}
       <SongList
         emptyMessage={emptyMessage}
         songs={songs}
@@ -1989,6 +2138,7 @@ function PlayList({
         onMoveSong={onMoveSong}
         movingSongPath={movingSongPath}
         onOpenLyrics={onOpenLyrics}
+        onChooseSongFolder={onChooseSongFolder}
       />
     </section>
   );
@@ -2171,6 +2321,7 @@ function SongList({
   onMoveSong,
   movingSongPath,
   onOpenLyrics,
+  onChooseSongFolder,
   renderSongAction,
   renderAfterSong
 }) {
@@ -2192,6 +2343,7 @@ function SongList({
                 "song-row",
                 selectedSong.id === song.id ? "selected" : "",
                 editable ? "editable" : "",
+                editable && onChooseSongFolder ? "has-folder-action" : "",
                 mode === "play" && onOpenLyrics ? "has-lyrics-action" : "",
                 renderSongAction ? "with-action" : ""
               ]
@@ -2255,6 +2407,11 @@ function SongList({
                     </>
                   ) : (
                     <>
+                      {onChooseSongFolder && (
+                        <button type="button" title="곡의 연습 폴더 변경" disabled={!song.audioPath} onClick={() => onChooseSongFolder(song)}>
+                          <FolderInput size={15} />
+                        </button>
+                      )}
                       {onMoveSong && (
                         <button
                           type="button"
