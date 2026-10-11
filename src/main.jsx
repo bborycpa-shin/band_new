@@ -5,6 +5,7 @@ import {
   FileText,
   Image,
   ListMusic,
+  Metronome,
   Lock,
   Mic,
   Music2,
@@ -46,6 +47,7 @@ import { createEmptySplitSong, loadSupabaseSplitSongs } from "./lib/loadSupabase
 import { loadSupabaseSheets } from "./lib/loadSupabaseSheets";
 import { createEmptyAlbum, loadSupabaseAlbums } from "./lib/loadSupabaseAlbums";
 import { instruments } from "./data/songs";
+import MetronomeWindow from "./components/MetronomeWindow";
 import "./styles.css";
 
 const tabs = [
@@ -260,6 +262,8 @@ function App() {
   const [albumStatus, setAlbumStatus] = useState("불러오는 중");
   const [selectedAlbumId, setSelectedAlbumId] = useState("");
   const [lyricsSongId, setLyricsSongId] = useState("");
+  const [isMetronomeOpen, setIsMetronomeOpen] = useState(false);
+  const [activeFloatingWindow, setActiveFloatingWindow] = useState("");
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [unlockedAlbumIds, setUnlockedAlbumIds] = useState(() => new Set());
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1450,6 +1454,20 @@ function App() {
         </div>
         <div className="topbar-actions">
           <button
+            className={isMetronomeOpen ? "icon-button metronome-button active" : "icon-button metronome-button"}
+            type="button"
+            title="메트로놈 열기"
+            aria-label="메트로놈 열기"
+            aria-expanded={isMetronomeOpen}
+            onClick={() => {
+              setIsMetronomeOpen(true);
+              setActiveFloatingWindow("metronome");
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <Metronome size={19} />
+          </button>
+          <button
             className={isAdminMode ? "lock-button active" : "lock-button"}
             type="button"
             title={isAdminMode ? "관리자모드 종료" : "관리자모드 진입"}
@@ -1509,7 +1527,10 @@ function App() {
             onMoveSong={moveSongToLibrary}
             movingSongPath={movingSongPath}
             onReorderSongs={(from, to) => reorderSongs(from, to, activeTab)}
-            onOpenLyrics={(song) => setLyricsSongId(song.id)}
+            onOpenLyrics={(song) => {
+              setLyricsSongId(song.id);
+              setActiveFloatingWindow("lyrics");
+            }}
           />
         )}
         <div className={activeTab === "split" ? "" : "tab-panel-hidden"}>
@@ -1604,9 +1625,19 @@ function App() {
       {lyricsSong && (
         <LyricsWindow
           song={lyricsSong}
+          isActive={activeFloatingWindow === "lyrics"}
+          onFocus={() => setActiveFloatingWindow("lyrics")}
           isAdmin={isAdminMode}
           onClose={() => setLyricsSongId("")}
           onSave={saveSongLyrics}
+        />
+      )}
+      {isMetronomeOpen && (
+        <MetronomeWindow
+          getAudioContext={getInstrumentAudioContext}
+          isActive={activeFloatingWindow === "metronome"}
+          onFocus={() => setActiveFloatingWindow("metronome")}
+          onClose={() => setIsMetronomeOpen(false)}
         />
       )}
     </div>
@@ -1963,7 +1994,7 @@ function PlayList({
   );
 }
 
-function LyricsWindow({ song, isAdmin, onClose, onSave }) {
+function LyricsWindow({ song, isAdmin, isActive, onFocus, onClose, onSave }) {
   const [draft, setDraft] = useState(song.lyrics || "");
   const [isSaving, setIsSaving] = useState(false);
   const [windowSize, setWindowSize] = useState(() => ({
@@ -2073,7 +2104,9 @@ function LyricsWindow({ song, isAdmin, onClose, onSave }) {
   return (
     <aside
       className="lyrics-window"
-      style={{ ...windowSize, ...windowPosition, "--lyrics-font-size": `${lyricsFontSize}px` }}
+      style={{ ...windowSize, ...windowPosition, zIndex: isActive ? 10 : 8, "--lyrics-font-size": `${lyricsFontSize}px` }}
+      onPointerDownCapture={onFocus}
+      onFocusCapture={onFocus}
       aria-label="가사창"
     >
       <div className="lyrics-window-head" onPointerDown={startMove}>
