@@ -53,26 +53,60 @@ export function createTunerDetector(size = tunerFrameSize) {
 
 export function createPitchSmoother() {
   let samples = [];
+  let pendingNote = [];
   let lastGoodAt = -Infinity;
   let displayed = null;
   let displayedAt = -Infinity;
   const holdMs = 650;
+  const median = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  };
+  const result = () => displayed === null ? null : 2 ** (displayed / 1200);
   return {
     update(frequency, now, clarity = 1) {
-      if (now - lastGoodAt > holdMs) samples = [];
-      if (now - displayedAt > holdMs) displayed = null;
-      if (!Number.isFinite(frequency) || frequency <= 0) {
-        return displayed;
+      if (now - lastGoodAt > holdMs) { samples = []; pendingNote = []; }
+      if (displayed !== null && now - displayedAt > holdMs) {
+        displayed = null;
+        samples = [];
+        pendingNote = [];
       }
-      if (samples.length && Math.abs(1200 * Math.log2(frequency / samples.at(-1))) > 80) samples = [];
-      samples = [...samples, frequency].slice(-3);
+      if (!Number.isFinite(frequency) || frequency <= 0) {
+        return result();
+      }
+      const pitch = 1200 * Math.log2(frequency);
+      const gap = now - lastGoodAt;
       lastGoodAt = now;
-      // Quieter, less periodic plucks need repeated agreement, not a stricter volume gate.
+
+      // Confirm a different note before switching, without gliding through unrelated pitches.
+      if (displayed !== null && Math.abs(pitch - displayed) > 70) {
+        if (gap > 180 || (pendingNote.length && Math.abs(pitch - median(pendingNote)) > 35)) pendingNote = [];
+        pendingNote.push(pitch);
+        if (pendingNote.length < 3) return result();
+        displayed = median(pendingNote);
+        samples = pendingNote.map(value => ({ pitch: value, at: now }));
+        pendingNote = [];
+        displayedAt = now;
+        return result();
+      }
+      pendingNote = [];
+      samples = samples.filter(sample => now - sample.at <= 360);
+      if (displayed === null && samples.length && Math.abs(pitch - samples.at(-1).pitch) > 80) samples = [];
+      samples = [...samples, { pitch, at: now }].slice(-5);
       if (samples.length >= (clarity >= 0.85 ? 2 : 3)) {
-        displayed = [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)];
+        const pitches = samples.map(sample => sample.pitch).sort((a, b) => a - b);
+        const target = pitches.length === 5 ? (pitches[1] + pitches[2] + pitches[3]) / 3 : median(pitches);
+        if (displayed === null) displayed = target;
+        else if (Math.abs(target - displayed) > 0.4) {
+          // Smooth in cents so low bass notes and higher guitar notes respond equally.
+          const elapsed = Math.max(0, Math.min(120, now - displayedAt));
+          const timeConstant = clarity >= 0.85 ? 220 : 340;
+          displayed += (target - displayed) * (1 - Math.exp(-elapsed / timeConstant));
+        }
         displayedAt = now;
       }
-      return displayed;
+      return result();
     }
   };
 }

@@ -11,6 +11,10 @@ function signal(frequency, sampleRate, noise = 0) {
   });
 }
 
+function assertPitch(actual, expected) {
+  assert(actual > 0 && Math.abs(1200 * Math.log2(actual / expected)) < 0.01, `${actual}Hz does not match ${expected}Hz`);
+}
+
 test("all guitar and 4/5-string bass open strings are detected at common sample rates", () => {
   for (const sampleRate of [44100, 48000]) {
     const detector = createTunerDetector();
@@ -91,20 +95,58 @@ test("manual string choice stays targeted, while chromatic mode covers nonstanda
 test("display smoothing rejects a single unstable note and clears stale input", () => {
   const smoother = createPitchSmoother();
   assert.equal(smoother.update(110, 0), null);
-  assert.equal(smoother.update(110, 60), 110);
-  assert.equal(smoother.update(110.2, 120), 110);
-  assert.equal(smoother.update(220, 180), 110);
-  assert.equal(smoother.update(220, 240), 220);
-  assert.equal(smoother.update(null, 300), 220);
-  assert.equal(smoother.update(null, 900), null);
+  assertPitch(smoother.update(110, 60), 110);
+  assertPitch(smoother.update(110.2, 120), 110);
+  assertPitch(smoother.update(220, 180), 110);
+  assertPitch(smoother.update(220, 240), 110);
+  assertPitch(smoother.update(220, 300), 220);
+  assertPitch(smoother.update(null, 360), 220);
+  assert.equal(smoother.update(null, 960), null);
+});
+
+test("needle jitter is reduced while quiet low strings keep their readings", () => {
+  const jitter = [-24, 22, -18, 27, 4, -21, 16, -25, 24, -8, 20, -23];
+  for (const midi of [23, 28, 40, 45, 64]) {
+    for (const clarity of [0.75, 0.97]) {
+      const smoother = createPitchSmoother();
+      const base = midiFrequency(midi);
+      for (let index = 0; index < 6; index++) smoother.update(base, index * 60, clarity);
+      const offsets = Array.from({ length: 48 }, (_, index) => {
+        const input = base * 2 ** (jitter[index % jitter.length] / 1200);
+        const frequency = smoother.update(input, (index + 6) * 60, clarity);
+        assert(frequency, `MIDI ${midi} lost its reading`);
+        return 1200 * Math.log2(frequency / base);
+      });
+      assert(Math.max(...offsets) - Math.min(...offsets) < 12, `MIDI ${midi}: excessive needle movement`);
+    }
+  }
+});
+
+test("real tuning adjustments settle promptly without jumping at isolated spikes", () => {
+  for (const midi of [28, 40, 45]) {
+    for (const clarity of [0.75, 0.97]) {
+      const smoother = createPitchSmoother();
+      const base = midiFrequency(midi);
+      for (let index = 0; index < 6; index++) smoother.update(base, index * 60, clarity);
+      const spike = smoother.update(base * 2 ** (45 / 1200), 360, clarity);
+      assert(Math.abs(1200 * Math.log2(spike / base)) < 1);
+      let frequency;
+      for (let index = 0; index < 16; index++) frequency = smoother.update(base * 2 ** (20 / 1200), 420 + index * 60, clarity);
+      assert(Math.abs(1200 * Math.log2(frequency / base) - 20) < 2, "Adjustment should settle within a second");
+      const next = base * 2 ** (500 / 1200);
+      smoother.update(next, 1440, clarity);
+      smoother.update(next, 1500, clarity);
+      assert(Math.abs(1200 * Math.log2(smoother.update(next, 1560, clarity) / next)) < 1, "A new string switches promptly");
+    }
+  }
 });
 
 test("lower-confidence pitches require repeated agreement and unstable noise cannot renew a stale note", () => {
   const smoother = createPitchSmoother();
   assert.equal(smoother.update(82.4, 0, 0.75), null);
   assert.equal(smoother.update(82.5, 60, 0.75), null);
-  assert.equal(smoother.update(82.3, 120, 0.75), 82.4);
-  assert.equal(smoother.update(null, 400), 82.4);
+  assertPitch(smoother.update(82.3, 120, 0.75), 82.4);
+  assertPitch(smoother.update(null, 400), 82.4);
   for (let index = 0; index < 6; index++) smoother.update(index % 2 ? 150 : 220, 460 + index * 60, 0.75);
   assert.equal(smoother.update(300, 820, 0.75), null);
   assert.equal(smoother.update(110, 2000), null, "A long gap starts a new candidate");
