@@ -50,7 +50,7 @@ export async function loadSupabaseSheets() {
   try {
     const [files, manifest] = await Promise.all([
       listAll(bucket),
-      loadFileManifest(bucket).catch(() => ({}))
+      loadFileManifest(bucket)
     ]);
     const sheets = files
       .filter(hasSheetExtension)

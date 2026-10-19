@@ -59,10 +59,18 @@ export async function loadSupabaseSongs() {
   try {
     const [audioFiles, audioManifest] = await Promise.all([
       listAll(audioBucket),
-      loadFileManifest(audioBucket).catch(() => ({}))
+      loadFileManifest(audioBucket)
     ]);
 
-    const fullAudioFiles = audioFiles.filter((path) => hasExtension(path, audioExtensions));
+    const fullAudioFiles = audioFiles.filter((path) => hasExtension(path, audioExtensions) && !audioManifest[path]?.replacedBy);
+    const folderForPath = (path) => path.startsWith(`${practiceFolder}/`)
+      ? path.split("/").slice(0, 2).join("/") : path.includes("/") ? path.split("/")[0] : path;
+    const candidateId = (path) => audioManifest[path]?.songId || folderForPath(path);
+    const idCounts = fullAudioFiles.reduce((counts, path) => {
+      const id = candidateId(path);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+      return counts;
+    }, new Map());
     const practiceFolders = readPracticeFolders(audioManifest);
     const practiceFolderIds = new Set(practiceFolders.map((folder) => folder.id));
     function mapLibrary(library) {
@@ -84,13 +92,12 @@ export async function loadSupabaseSongs() {
         });
 
       return orderedAudioFiles.map((path, index) => {
-        const folder = path.startsWith(`${practiceFolder}/`)
-          ? path.split("/").slice(0, 2).join("/")
-          : path.includes("/") ? path.split("/")[0] : `song-${index + 1}`;
+        const folder = folderForPath(path);
         const title = audioManifest[path]?.displayName || titleFromPath(path) || folder;
 
         return {
-          id: audioManifest[path]?.songId || folder || `song-${index + 1}`,
+          id: idCounts.get(candidateId(path)) > 1 ? `${candidateId(path)}:${path}` : candidateId(path),
+          scoreFolder: audioManifest[path]?.scoreFolder || (path.includes("/") ? folder : `song-${index + 1}`),
           library,
           practiceFolderId: practiceFolderIds.has(audioManifest[path]?.practiceFolderId)
             ? audioManifest[path].practiceFolderId : "",
@@ -120,6 +127,6 @@ export async function loadSupabaseSongs() {
       error: ""
     };
   } catch (error) {
-    return { songs: sampleSongs, practiceSongs: [], practiceFolders: [], source: "sample", error: error.message, practiceError: error.message };
+    return { songs: [], practiceSongs: [], practiceFolders: [], source: "error", error: error.message, practiceError: error.message };
   }
 }

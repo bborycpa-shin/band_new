@@ -318,6 +318,123 @@ h1 {
   line-height: 1.4;
 }
 
+.tuner-button.active {
+  color: #ffffff;
+  background: #087f72;
+}
+
+.tuner-window {
+  position: fixed;
+  width: min(320px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  border: 1px solid #bac8d7;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 28px rgba(24, 32, 51, 0.18);
+  backdrop-filter: blur(10px);
+  font-variant-numeric: tabular-nums;
+}
+
+.tuner-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
+
+.tuner-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #25314a;
+  font-size: 0.9rem;
+}
+
+.tuner-title strong { font-weight: 600; }
+.tuner-live { width: 7px; height: 7px; border-radius: 50%; background: #087f72; }
+
+.tuner-window button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 7px;
+  border: 1px solid #dbe3ef;
+  border-radius: 5px;
+  color: #334155;
+  background: #f5f7fb;
+  font: inherit;
+}
+
+.tuner-window button:disabled { opacity: 0.45; cursor: not-allowed; }
+.tuner-window button:focus-visible { outline: 2px solid #087f72; outline-offset: 2px; }
+.tuner-window .tuner-close { width: 32px; height: 32px; padding: 0; border: 0; }
+.tuner-controls { display: grid; gap: 10px; padding: 12px; }
+
+.tuner-modes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border-radius: 5px;
+  background: #edf2f8;
+}
+
+.tuner-modes button { height: 30px; padding: 0 3px; border: 0; background: transparent; font-size: 0.76rem; white-space: nowrap; }
+.tuner-modes button[aria-checked="true"] { color: #ffffff; background: #087f72; }
+.tuner-strings { display: grid; gap: 3px; min-height: 44px; }
+.tuner-strings button { display: flex; flex-direction: column; gap: 1px; height: 44px; padding: 2px; font-size: 0.8rem; }
+.tuner-strings small { color: #738096; font-size: 0.62rem; }
+.tuner-strings sub { font-size: 0.65rem; }
+.tuner-strings button[aria-pressed="true"] { border-color: #087f72; color: #086b61; background: #e8f5f0; }
+.tuner-strings button.detected { border-color: #087f72; box-shadow: inset 0 -2px 0 #087f72; }
+.tuner-readout { display: grid; justify-items: center; align-content: center; height: 104px; gap: 3px; color: #25314a; }
+.tuner-note { min-height: 57px; font-size: 3rem; line-height: 1.1; font-weight: 500; }
+.tuner-note small { margin-left: 3px; font-size: 1.15rem; color: #738096; }
+.tuner-frequency { color: #556178; font-size: 0.85rem; }
+.tuner-target { min-height: 16px; color: #738096; font-size: 0.72rem; }
+.tuner-readout.in-tune .tuner-note { color: #087f72; }
+.tuner-meter { padding: 0 5px; }
+.tuner-meter-scale { position: relative; display: flex; align-items: center; justify-content: space-between; height: 28px; }
+.tuner-meter-scale i { width: 1px; height: 10px; background: #c2cddd; }
+.tuner-meter-scale i.major { height: 18px; background: #8b9bb2; }
+.tuner-center-zone { position: absolute; left: 45%; top: 0; width: 10%; height: 28px; border-radius: 3px; background: rgba(8, 127, 114, 0.13); }
+.tuner-needle { position: absolute; top: 0; width: 3px; height: 28px; border-radius: 2px; background: #2563eb; transform: translateX(-50%); transition: left 80ms linear; }
+.tuner-needle::before { position: absolute; left: -3px; top: -3px; width: 9px; height: 5px; border-radius: 2px; background: inherit; content: ""; }
+.tuner-needle.hidden { visibility: hidden; }
+.tuner-meter.in-tune .tuner-needle { background: #087f72; }
+.tuner-meter-labels { display: flex; justify-content: space-between; margin-top: 4px; color: #738096; font-size: 0.62rem; }
+.tuner-pitch-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; font-size: 0.85rem; color: #556178; }
+.tuner-pitch-status .in-tune { color: #087f72; font-weight: 600; }
+.tuner-cents { flex: 0 0 68px; text-align: right; color: #25314a; }
+.tuner-reference { display: flex; justify-content: center; align-items: center; gap: 7px; min-width: 0; font-size: 0.76rem; color: #64748b; }
+.tuner-reference button { width: 28px; min-height: 28px; height: 28px; padding: 0; }
+.tuner-reference input { width: 50px; height: 28px; padding: 0 2px; border: 1px solid #dbe3ef; border-radius: 4px; color: #25314a; background: #ffffff; text-align: center; appearance: textfield; }
+.tuner-reference input::-webkit-inner-spin-button, .tuner-reference input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.tuner-input-level { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px; align-items: center; color: #738096; }
+.tuner-input-level meter { width: 100%; height: 8px; }
+.tuner-window .tuner-toggle { height: 36px; color: #ffffff; background: #087f72; border-color: #087f72; font-size: 0.88rem; }
+.tuner-window .tuner-toggle.listening { color: #9f2525; background: #fff0f0; border-color: #edc8c8; }
+.tuner-error { color: #b91c1c; font-size: 0.78rem; line-height: 1.45; overflow-wrap: anywhere; }
+
+@media (max-width: 760px) {
+  .topbar { gap: 8px; }
+  .topbar-actions .icon-button, .topbar-actions .lock-button { width: 34px; height: 34px; }
+  .topbar-actions .install-app-button { width: 34px; height: 34px; padding: 0; gap: 0; font-size: 0; }
+}
+
 .recorder-strip {
   position: sticky;
   top: 58px;
@@ -694,6 +811,13 @@ h1 {
   font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.player-error {
+  margin: 4px 0 8px;
+  color: #b91c1c;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
 .song-main {

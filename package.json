@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.112.1",
     "@vitejs/plugin-react": "latest",
     "lucide-react": "latest",
+    "pitchy": "4.1.0",
     "react": "latest",
     "react-dom": "latest",
     "typescript": "latest",

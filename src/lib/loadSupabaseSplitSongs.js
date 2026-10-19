@@ -59,7 +59,7 @@ export async function loadSupabaseSplitSongs() {
   try {
     const [files, manifest] = await Promise.all([
       listAll(bucket),
-      loadFileManifest(bucket).catch(() => ({}))
+      loadFileManifest(bucket)
     ]);
     const songMeta = manifest.__splitSongs ?? {};
     const audioFiles = files.filter(hasAudioExtension);

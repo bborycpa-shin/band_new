@@ -6,6 +6,7 @@ import {
   Image,
   ListMusic,
   Metronome,
+  AudioLines,
   Lock,
   Mic,
   Music2,
@@ -13,6 +14,7 @@ import {
   Pencil,
   Play,
   Repeat,
+  RotateCw,
   Save,
   SkipBack,
   SkipForward,
@@ -37,9 +39,8 @@ import { supabase, supabaseConfig } from "./lib/supabase";
 import {
   loadFileManifest,
   manifestFolder,
-  moveDisplayName,
   removeDisplayName,
-  saveFileManifest,
+  updateFileManifest,
   setDisplayName,
   setManifestOrder
 } from "./lib/fileManifest";
@@ -49,8 +50,11 @@ import { loadSupabaseSheets } from "./lib/loadSupabaseSheets";
 import { createEmptyAlbum, loadSupabaseAlbums } from "./lib/loadSupabaseAlbums";
 import { instruments } from "./data/songs";
 import MetronomeWindow from "./components/MetronomeWindow";
+import TunerWindow from "./components/TunerWindow";
 import { PracticeFolderToolbar, PracticeSelectionToolbar, PracticeSongFolderDialog } from "./components/PracticeFolders";
 import { mergePracticeSongOrder, readPracticeFolders, reorderPracticeSelection } from "./lib/practiceFolders";
+import { replaceSongAudioMetadata } from "./lib/songAudio";
+import { getSplitAudios, getSplitClock, playSplitAudioGroup } from "./lib/splitPlayback";
 import "./styles.css";
 
 const tabs = [
@@ -232,7 +236,7 @@ async function resizeImageFile(file, { maxSize, quality, name }) {
 }
 
 function newSongFolderName() {
-  return `song-${Date.now()}`;
+  return `song-${Date.now()}-${crypto.randomUUID()}`;
 }
 
 function newSplitFolderName() {
@@ -259,6 +263,7 @@ function App() {
   const [selectedPracticeId, setSelectedPracticeId] = useState("");
   const [mainLibraryMode, setMainLibraryMode] = useState("play");
   const [movingSongPath, setMovingSongPath] = useState("");
+  const [isUploadingSong, setIsUploadingSong] = useState(false);
   const [pendingPlayId, setPendingPlayId] = useState("");
   const [splitSongs, setSplitSongs] = useState([]);
   const [splitLibraryStatus, setSplitLibraryStatus] = useState("불러오는 중");
@@ -272,10 +277,13 @@ function App() {
   const [selectedAlbumId, setSelectedAlbumId] = useState("");
   const [lyricsSongId, setLyricsSongId] = useState("");
   const [isMetronomeOpen, setIsMetronomeOpen] = useState(false);
+  const [isTunerOpen, setIsTunerOpen] = useState(false);
   const [activeFloatingWindow, setActiveFloatingWindow] = useState("");
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [unlockedAlbumIds, setUnlockedAlbumIds] = useState(() => new Set());
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isSplitStarting, setIsSplitStarting] = useState(false);
+  const [playbackError, setPlaybackError] = useState("");
   const [playbackMode, setPlaybackMode] = useState("play");
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -295,7 +303,9 @@ function App() {
     Object.fromEntries(instruments.map((instrument) => [instrument.key, false]))
   );
   const audioRef = useRef(null);
+  const refreshVersionsRef = useRef({ audio: 0, split: 0, score: 0, album: 0 });
   const splitRefs = useRef({});
+  const splitPlaybackRequestRef = useRef(0);
   const previousSplitVolumesRef = useRef(
     Object.fromEntries(instruments.map((instrument) => [instrument.key, 0.7]))
   );
@@ -345,7 +355,14 @@ function App() {
   );
 
   async function refreshLibrary(nextSelectedId, library = mainLibraryMode) {
+    const version = ++refreshVersionsRef.current.audio;
     const result = await loadSupabaseSongs();
+    if (version !== refreshVersionsRef.current.audio) return;
+    if (result.error) {
+      setLibraryStatus("불러오기 실패");
+      setPracticeLibraryStatus("불러오기 실패");
+      return;
+    }
     setAppSongs(result.songs);
     setPracticeSongs(result.practiceSongs);
     setPracticeFolders(result.practiceFolders);
@@ -369,7 +386,10 @@ function App() {
   }
 
   async function refreshSplitLibrary(nextSelectedId = selectedSplitId) {
+    const version = ++refreshVersionsRef.current.split;
     const result = await loadSupabaseSplitSongs();
+    if (version !== refreshVersionsRef.current.split) return;
+    if (result.error) { setSplitLibraryStatus("불러오기 실패"); return; }
     setSplitSongs(result.songs);
     setSelectedSplitId(
       result.songs.some((song) => song.id === nextSelectedId)
@@ -384,7 +404,10 @@ function App() {
   }
 
   async function refreshSheetLibrary() {
+    const version = ++refreshVersionsRef.current.score;
     const result = await loadSupabaseSheets();
+    if (version !== refreshVersionsRef.current.score) return;
+    if (result.error) { setSheetStatus("불러오기 실패"); return; }
     setSheetFiles(result.sheets);
     setSheetOrder(result.order ?? []);
     if (result.source === "supabase") {
@@ -395,7 +418,10 @@ function App() {
   }
 
   async function refreshAlbumLibrary(nextSelectedId = selectedAlbumId) {
+    const version = ++refreshVersionsRef.current.album;
     const result = await loadSupabaseAlbums();
+    if (version !== refreshVersionsRef.current.album) return;
+    if (result.error) { setAlbumStatus("불러오기 실패"); return; }
     setAlbumFolders(result.albums);
     setSelectedAlbumId(
       result.albums.some((album) => album.id === nextSelectedId)
@@ -464,7 +490,8 @@ function App() {
     setDuration(0);
     setAbLoop({ start: null, end: null });
     setKeyShift(0);
-  }, [selectedMainSong.id, mainLibraryMode]);
+    setPlaybackError("");
+  }, [selectedMainSong.id, selectedMainSong.audioPath, mainLibraryMode]);
 
   useEffect(() => {
     if (activeTab !== "split" && playbackMode !== "split") return;
@@ -473,6 +500,7 @@ function App() {
     setDuration(0);
     setAbLoop({ start: null, end: null });
     setKeyShift(0);
+    setPlaybackError("");
   }, [selectedSplitId]);
 
   useEffect(() => {
@@ -490,24 +518,8 @@ function App() {
 
   useEffect(() => {
     if (!pendingSplitPlayId || pendingSplitPlayId !== selectedSplitSong.id) return;
-    const activeAudios = instruments
-      .map((instrument) => splitRefs.current[instrument.key])
-      .filter((audio) => audio?.currentSrc || audio?.src);
-
-    if (!activeAudios.length) {
-      setPendingSplitPlayId("");
-      return;
-    }
-
-    pauseMainAudio();
-    setPlaybackMode("split");
-    activeAudios.forEach((audio) => {
-      audio.currentTime = 0;
-      applyPlaybackSettings(audio, rate, 0);
-      audio.volume = splitMuted[audio.dataset.instrument] ? 0 : splitVolumes[audio.dataset.instrument] ?? 0.7;
-    });
-    Promise.allSettled(activeAudios.map((audio) => audio.play())).then(() => setIsPlaying(true));
     setPendingSplitPlayId("");
+    startSelectedSplit(0, 0);
   }, [pendingSplitPlayId, selectedSplitSong, rate, splitVolumes, splitMuted]);
 
   function selectSong(song, library = "play") {
@@ -526,6 +538,11 @@ function App() {
   }
 
   function selectSplitSong(song) {
+    if (song.id !== selectedSplitId) {
+      pauseSplitTracks();
+      setIsPlaying(false);
+      setPendingSplitPlayId("");
+    }
     setSelectedSplitId(song.id);
     setKeyShift(0);
   }
@@ -536,6 +553,8 @@ function App() {
   }
 
   function pauseSplitTracks() {
+    splitPlaybackRequestRef.current++;
+    setIsSplitStarting(false);
     instruments.forEach((instrument) => {
       const audio = splitRefs.current[instrument.key];
       if (audio) audio.pause();
@@ -558,13 +577,13 @@ function App() {
       setAbLoop({ start: null, end: null });
       return;
     }
-    if (isPlaying) return;
+    if (isPlaying || isSplitStarting) return;
 
     if (nextTab === "split") {
-      const vocalAudio = splitRefs.current.vocal;
+      const clock = getSplitClock(splitRefs.current, selectedSplitSong);
       setPlaybackMode("split");
-      setCurrentTime(vocalAudio?.currentTime || 0);
-      setDuration(Number.isFinite(vocalAudio?.duration) ? vocalAudio.duration : 0);
+      setCurrentTime(clock.audio?.currentTime || 0);
+      setDuration(clock.duration);
       return;
     }
 
@@ -575,7 +594,7 @@ function App() {
   }
 
   function currentPlayerMode() {
-    return isPlaying ? playbackMode : activeTab === "split" ? "split" : mainLibraryMode;
+    return isPlaying || isSplitStarting ? playbackMode : activeTab === "split" ? "split" : mainLibraryMode;
   }
 
   async function togglePlay() {
@@ -601,27 +620,37 @@ function App() {
   }
 
   async function toggleSplitPlay() {
-    const activeAudios = instruments
-      .map((instrument) => splitRefs.current[instrument.key])
-      .filter((audio) => audio?.currentSrc || audio?.src);
-
-    if (!activeAudios.length) return;
-
-    if (isPlaying) {
-      activeAudios.forEach((audio) => audio.pause());
+    if (isPlaying || isSplitStarting) {
+      pauseSplitTracks();
       setIsPlaying(false);
       return;
     }
+    await startSelectedSplit(currentTime);
+  }
 
+  async function startSelectedSplit(time, shift = keyShift) {
     pauseMainAudio();
+    pauseSplitTracks();
+    const request = splitPlaybackRequestRef.current;
+    const isCurrent = () => splitPlaybackRequestRef.current === request;
     setPlaybackMode("split");
-    activeAudios.forEach((audio) => {
-      audio.currentTime = currentTime;
-      applyPlaybackSettings(audio, rate, keyShift);
-      audio.volume = splitMuted[audio.dataset.instrument] ? 0 : splitVolumes[audio.dataset.instrument] ?? 0.7;
-    });
-    await Promise.allSettled(activeAudios.map((audio) => audio.play()));
-    setIsPlaying(true);
+    setIsPlaying(false);
+    setIsSplitStarting(true);
+    setPlaybackError("");
+    try {
+      const playing = await playSplitAudioGroup(getSplitAudios(splitRefs.current, selectedSplitSong), time, (audio) => {
+        applyPlaybackSettings(audio, rate, shift);
+        audio.volume = splitMuted[audio.dataset.instrument] ? 0 : splitVolumes[audio.dataset.instrument] ?? 0.7;
+      }, isCurrent);
+      if (!isCurrent()) return;
+      setIsPlaying(playing);
+      setDuration(getSplitClock(splitRefs.current, selectedSplitSong).duration);
+      setCurrentTime(time);
+    } catch (error) {
+      if (isCurrent()) { setIsPlaying(false); setPlaybackError(error.message); }
+    } finally {
+      if (isCurrent()) setIsSplitStarting(false);
+    }
   }
 
   useEffect(() => {
@@ -647,7 +676,9 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyboardShortcut);
   });
 
-  async function playSplitSong(song) {
+  function playSplitSong(song) {
+    pauseSplitTracks();
+    setIsPlaying(false);
     setSelectedSplitId(song.id);
     setKeyShift(0);
     setPendingSplitPlayId(song.id);
@@ -655,21 +686,6 @@ function App() {
     setPlaybackMode("split");
     pauseMainAudio();
 
-    const activeAudios = instruments
-      .map((instrument) => {
-        const audio = splitRefs.current[instrument.key];
-        const src = song.splitTracks?.[instrument.key];
-        if (!audio || !src) return null;
-        audio.src = src;
-        audio.currentTime = 0;
-        applyPlaybackSettings(audio, rate, 0);
-        audio.volume = splitMuted[instrument.key] ? 0 : splitVolumes[instrument.key] ?? 0.7;
-        return audio;
-      })
-      .filter(Boolean);
-
-    await Promise.allSettled(activeAudios.map((audio) => audio.play()));
-    setIsPlaying(Boolean(activeAudios.length));
   }
 
   function seekBy(seconds) {
@@ -706,7 +722,7 @@ function App() {
       if (splitSongs.length < 1) return;
       const currentIndex = splitSongs.findIndex((song) => song.id === selectedSplitSong.id);
       const nextIndex = (currentIndex + offset + splitSongs.length) % splitSongs.length;
-      setSelectedSplitId(splitSongs[nextIndex].id);
+      selectSplitSong(splitSongs[nextIndex]);
       return;
     }
 
@@ -725,22 +741,7 @@ function App() {
 
   async function restartCurrent() {
     if (currentPlayerMode() === "split") {
-      const activeAudios = instruments
-        .map((instrument) => splitRefs.current[instrument.key])
-        .filter((audio) => audio?.currentSrc || audio?.src);
-
-      if (!activeAudios.length) return;
-
-      pauseMainAudio();
-      setPlaybackMode("split");
-      activeAudios.forEach((audio) => {
-        audio.currentTime = 0;
-        applyPlaybackSettings(audio, rate, keyShift);
-        audio.volume = splitMuted[audio.dataset.instrument] ? 0 : splitVolumes[audio.dataset.instrument] ?? 0.7;
-      });
-      setCurrentTime(0);
-      await Promise.allSettled(activeAudios.map((audio) => audio.play()));
-      setIsPlaying(true);
+      await startSelectedSplit(0);
       return;
     }
 
@@ -782,7 +783,8 @@ function App() {
   }
 
   function handleSplitAudioEnded(instrumentKey) {
-    if (instrumentKey !== "vocal") return;
+    if (instrumentKey !== getSplitClock(splitRefs.current, selectedSplitSong).key) return;
+    pauseSplitTracks();
 
     if (playSequenceMode === "song-repeat") {
       restartCurrent();
@@ -807,6 +809,22 @@ function App() {
     }
 
     setIsPlaying(false);
+  }
+
+  function handleSplitMetadata() {
+    if (currentPlayerMode() === "split") setDuration(getSplitClock(splitRefs.current, selectedSplitSong).duration);
+  }
+
+  function handleSplitTime(instrumentKey, time) {
+    if (currentPlayerMode() === "split" && instrumentKey === getSplitClock(splitRefs.current, selectedSplitSong).key) handleTrackedTime(time);
+  }
+
+  function handleSplitError(instrumentKey) {
+    if (currentPlayerMode() !== "split") return;
+    if (isPlaying || isSplitStarting) pauseSplitTracks();
+    setIsPlaying(false);
+    const label = instruments.find((instrument) => instrument.key === instrumentKey)?.label || instrumentKey;
+    setPlaybackError(`${label} 음원을 읽지 못했습니다. 파일과 연결 상태를 확인해주세요.`);
   }
 
   function markAbLoop() {
@@ -891,15 +909,15 @@ function App() {
     setIsPracticeFolderBusy(true);
     try {
       const bucket = supabaseConfig.buckets.audio;
-      const manifest = await loadFileManifest(bucket);
-      if (readPracticeFolders(manifest).some((folder) => folder.title === title)) {
-        throw new Error("같은 이름의 폴더가 이미 있습니다.");
-      }
       const id = `practice-group-${crypto.randomUUID()}`;
-      manifest.__practiceFolders = {
-        ...(manifest.__practiceFolders ?? {}), [id]: { title, createdAt: new Date().toISOString() }
-      };
-      await saveFileManifest(bucket, manifest);
+      const manifest = await updateFileManifest(bucket, (draft) => {
+        if (readPracticeFolders(draft).some((folder) => folder.title === title)) {
+          throw new Error("같은 이름의 폴더가 이미 있습니다.");
+        }
+        draft.__practiceFolders = {
+          ...(draft.__practiceFolders ?? {}), [id]: { title, createdAt: new Date().toISOString() }
+        };
+      });
       setPracticeFolders(readPracticeFolders(manifest));
       changePracticeFolder(id);
     } catch (error) {
@@ -916,13 +934,13 @@ function App() {
     setIsPracticeFolderBusy(true);
     try {
       const bucket = supabaseConfig.buckets.audio;
-      const manifest = await loadFileManifest(bucket);
-      if (!manifest.__practiceFolders?.[folder.id]) throw new Error("폴더를 찾을 수 없습니다.");
-      if (readPracticeFolders(manifest).some((item) => item.id !== folder.id && item.title === title)) {
-        throw new Error("같은 이름의 폴더가 이미 있습니다.");
-      }
-      manifest.__practiceFolders[folder.id] = { ...manifest.__practiceFolders[folder.id], title };
-      await saveFileManifest(bucket, manifest);
+      const manifest = await updateFileManifest(bucket, (draft) => {
+        if (!draft.__practiceFolders?.[folder.id]) throw new Error("폴더를 찾을 수 없습니다.");
+        if (readPracticeFolders(draft).some((item) => item.id !== folder.id && item.title === title)) {
+          throw new Error("같은 이름의 폴더가 이미 있습니다.");
+        }
+        draft.__practiceFolders[folder.id] = { ...draft.__practiceFolders[folder.id], title };
+      });
       setPracticeFolders(readPracticeFolders(manifest));
     } catch (error) {
       window.alert(`폴더 이름 변경 실패: ${error.message}`);
@@ -937,14 +955,14 @@ function App() {
     setIsPracticeFolderBusy(true);
     try {
       const bucket = supabaseConfig.buckets.audio;
-      const manifest = await loadFileManifest(bucket);
-      delete manifest.__practiceFolders?.[folder.id];
-      for (const [path, metadata] of Object.entries(manifest)) {
-        if (!path.startsWith("__") && metadata?.practiceFolderId === folder.id) {
-          manifest[path] = { ...metadata, practiceFolderId: "" };
+      const manifest = await updateFileManifest(bucket, (draft) => {
+        delete draft.__practiceFolders?.[folder.id];
+        for (const [path, metadata] of Object.entries(draft)) {
+          if (!path.startsWith("__") && metadata?.practiceFolderId === folder.id) {
+            draft[path] = { ...metadata, practiceFolderId: "" };
+          }
         }
-      }
-      await saveFileManifest(bucket, manifest);
+      });
       const clearFolder = (songs) => songs.map((song) => song.practiceFolderId === folder.id
         ? { ...song, practiceFolderId: "" } : song);
       setPracticeFolders(readPracticeFolders(manifest));
@@ -966,15 +984,15 @@ function App() {
     setIsPracticeFolderBusy(true);
     try {
       const bucket = supabaseConfig.buckets.audio;
-      const manifest = await loadFileManifest(bucket);
-      if (folderId && !readPracticeFolders(manifest).some((folder) => folder.id === folderId)) {
-        throw new Error("대상 폴더를 찾을 수 없습니다.");
-      }
       const paths = new Set(songs.map((song) => song.audioPath));
-      for (const path of paths) {
-        manifest[path] = { ...(manifest[path] ?? {}), practiceFolderId: folderId };
-      }
-      await saveFileManifest(bucket, manifest);
+      await updateFileManifest(bucket, (manifest) => {
+        if (folderId && !readPracticeFolders(manifest).some((folder) => folder.id === folderId)) {
+          throw new Error("대상 폴더를 찾을 수 없습니다.");
+        }
+        for (const path of paths) {
+          manifest[path] = { ...(manifest[path] ?? {}), practiceFolderId: folderId };
+        }
+      });
       setPracticeSongs((items) => items.map((item) => paths.has(item.audioPath)
         ? { ...item, practiceFolderId: folderId } : item));
       setSelectedPracticePaths(new Set());
@@ -1018,41 +1036,50 @@ function App() {
 
   async function uploadSongFile(song, file, library = "play") {
     const files = Array.from(file instanceof FileList ? file : file ? [file] : []);
-    if (!supabase || !files.length) return;
+    if (!supabase || !files.length || isUploadingSong) return;
     const bucket = supabaseConfig.buckets.audio;
     const isNewSong = !song || song.id === "empty";
     const uploaded = [];
 
-    for (const item of files) {
-      const folder = isNewSong
-        ? `${library === "practice" ? `${practiceFolder}/` : ""}${newSongFolderName()}`
-        : song.id;
-      const path = `${folder}/full/${uniqueFileName(item)}`;
-      const { error } = await supabase.storage.from(bucket).upload(path, item, {
-        cacheControl: "3600",
-        upsert: true
-      });
-      if (error) {
-        window.alert(`업로드 실패: ${error.message}`);
-        continue;
+    setIsUploadingSong(true);
+    try {
+      await loadFileManifest(bucket);
+      for (const item of isNewSong ? files : files.slice(0, 1)) {
+        const folder = isNewSong
+          ? `${library === "practice" ? `${practiceFolder}/` : ""}${newSongFolderName()}`
+          : song.audioPath.split("/").slice(0, -1).join("/");
+        const path = isNewSong ? `${folder}/full/${uniqueFileName(item)}` : [folder, uniqueFileName(item)].filter(Boolean).join("/");
+        const { error } = await supabase.storage.from(bucket).upload(path, item, {
+          cacheControl: "3600", upsert: true
+        });
+        if (error) { window.alert(`업로드 실패: ${error.message}`); continue; }
+        try {
+          if (isNewSong) {
+            await updateFileManifest(bucket, (manifest) => {
+              manifest[path] = { displayName: item.name, library, songId: folder, scoreFolder: folder,
+                practiceFolderId: library === "practice" && selectedPracticeFolderId !== "__all" ? selectedPracticeFolderId : "" };
+              const orderKey = songOrderKey(library);
+              manifest[orderKey] = [...new Set([...uploaded.map((entry) => entry.path), path,
+                ...(manifest[orderKey] ?? []), ...(library === "practice" ? practiceSongs : appSongs).map((entry) => entry.audioPath)])];
+            });
+          } else {
+            await updateFileManifest(bucket, (manifest) => replaceSongAudioMetadata(manifest, song, path, item.name));
+          }
+        } catch (error) {
+          const { error: cleanupError } = await supabase.storage.from(bucket).remove([path]);
+          window.alert(`음원 정보 저장 실패: ${error.message}${cleanupError ? "\n업로드된 임시 파일을 정리하지 못했습니다." : ""}`);
+          continue;
+        }
+        uploaded.push({ folder, path });
+        if (!isNewSong) {
+          const { error: cleanupError } = await supabase.storage.from(bucket).remove([song.audioPath]);
+          if (cleanupError) window.alert("음원은 교체됐지만 이전 파일을 정리하지 못했습니다. 이전 파일은 목록에 중복 표시되지 않습니다.");
+        }
       }
-      await setDisplayName(bucket, path, item.name, {
-        library,
-        practiceFolderId: song?.practiceFolderId ??
-          (library === "practice" && selectedPracticeFolderId !== "__all" ? selectedPracticeFolderId : "")
-      });
-      uploaded.push({ folder, path });
+      if (uploaded.length) await refreshLibrary(isNewSong ? uploaded[0].folder : song.id, library);
+    } finally {
+      setIsUploadingSong(false);
     }
-
-    if (!uploaded.length) return;
-
-    if (isNewSong) {
-      await setManifestOrder(bucket, [
-        ...uploaded.map((item) => item.path),
-        ...(library === "practice" ? practiceSongs : appSongs).map((item) => item.audioPath).filter(Boolean)
-      ], songOrderKey(library));
-    }
-    await refreshLibrary(uploaded[0].folder, library);
   }
 
   async function renameSong(song, nextName) {
@@ -1073,28 +1100,28 @@ function App() {
 
     try {
       const bucket = supabaseConfig.buckets.audio;
-      const manifest = await loadFileManifest(bucket);
-      // Root-level legacy files use numbered IDs; preserve them when the list changes.
-      for (const item of [...appSongs, ...practiceSongs]) {
-        if (item.audioPath && !item.audioPath.includes("/")) {
-          manifest[item.audioPath] = { ...(manifest[item.audioPath] ?? {}), songId: item.id };
+      await updateFileManifest(bucket, (manifest) => {
+        for (const item of [...appSongs, ...practiceSongs]) {
+          if (item.audioPath && !item.audioPath.includes("/")) {
+            manifest[item.audioPath] = { ...(manifest[item.audioPath] ?? {}), songId: item.id };
+          }
         }
-      }
-      manifest[song.audioPath] = {
-        ...(manifest[song.audioPath] ?? {}),
-        displayName: manifest[song.audioPath]?.displayName || song.title,
-        library: targetLibrary,
-        practiceFolderId: nextPracticeFolderId
-      };
-      const sourceKey = songOrderKey(sourceLibrary);
-      const targetKey = songOrderKey(targetLibrary);
-      manifest[sourceKey] = [...new Set([
-        ...(manifest[sourceKey] ?? []), ...sourceSongs.map((item) => item.audioPath)
-      ])].filter((path) => path && path !== song.audioPath);
-      manifest[targetKey] = [...new Set([
-        song.audioPath, ...(manifest[targetKey] ?? []), ...targetSongs.map((item) => item.audioPath)
-      ])].filter(Boolean);
-      await saveFileManifest(bucket, manifest);
+        manifest[song.audioPath] = {
+          ...(manifest[song.audioPath] ?? {}),
+          displayName: manifest[song.audioPath]?.displayName || song.title,
+          scoreFolder: manifest[song.audioPath]?.scoreFolder || song.scoreFolder || song.id,
+          library: targetLibrary,
+          practiceFolderId: nextPracticeFolderId
+        };
+        const sourceKey = songOrderKey(sourceLibrary);
+        const targetKey = songOrderKey(targetLibrary);
+        manifest[sourceKey] = [...new Set([
+          ...(manifest[sourceKey] ?? []), ...sourceSongs.map((item) => item.audioPath)
+        ])].filter((path) => path && path !== song.audioPath);
+        manifest[targetKey] = [...new Set([
+          song.audioPath, ...(manifest[targetKey] ?? []), ...targetSongs.map((item) => item.audioPath)
+        ])].filter(Boolean);
+      });
 
       if (selectedMainSong.audioPath === song.audioPath && playbackMode !== "split") {
         pauseMainAudio();
@@ -1124,12 +1151,9 @@ function App() {
   async function saveSongLyrics(song, lyrics) {
     if (!supabase || !song.audioPath) return;
     const bucket = supabaseConfig.buckets.audio;
-    const manifest = await loadFileManifest(bucket);
-    manifest[song.audioPath] = {
-      ...(manifest[song.audioPath] ?? {}),
-      lyrics
-    };
-    await saveFileManifest(bucket, manifest);
+    await updateFileManifest(bucket, (manifest) => {
+      manifest[song.audioPath] = { ...(manifest[song.audioPath] ?? {}), lyrics };
+    });
     await refreshLibrary(song.id, song.library ?? "play");
   }
 
@@ -1139,6 +1163,7 @@ function App() {
     if (!ok) return;
 
     const bucket = supabaseConfig.buckets.audio;
+    await loadFileManifest(bucket);
     const { error } = await supabase.storage.from(bucket).remove([song.audioPath]);
     if (error) {
       window.alert(`삭제 실패: ${error.message}`);
@@ -1186,11 +1211,9 @@ function App() {
     setSelectedSplitId(moved.id);
     try {
       const bucket = supabaseConfig.buckets.split;
-      const manifest = await loadFileManifest(bucket);
-      manifest.__splitOrder = reordered
-        .map((song) => song.id)
-        .filter((id) => id && id !== "split-empty");
-      await saveFileManifest(bucket, manifest);
+      await updateFileManifest(bucket, (manifest) => {
+        manifest.__splitOrder = reordered.map((song) => song.id).filter((id) => id && id !== "split-empty");
+      });
     } catch (error) {
       setSplitSongs(previousSongs);
       window.alert(`순서 저장 실패: ${error.message}`);
@@ -1206,9 +1229,7 @@ function App() {
     setSheetOrder(reordered);
     try {
       const bucket = supabaseConfig.buckets.score;
-      const manifest = await loadFileManifest(bucket);
-      manifest.__scoreOrder = reordered.filter(Boolean);
-      await saveFileManifest(bucket, manifest);
+      await updateFileManifest(bucket, (manifest) => { manifest.__scoreOrder = reordered.filter(Boolean); });
     } catch (error) {
       setSheetOrder(previousOrder);
       window.alert(`순서 저장 실패: ${error.message}`);
@@ -1222,6 +1243,7 @@ function App() {
       return;
     }
     const bucket = supabaseConfig.buckets.split;
+    await loadFileManifest(bucket);
     const path = `${song.id}/${instrumentKey}/${uniqueFileName(file)}`;
     const { error } = await supabase.storage.from(bucket).upload(path, file, {
       cacheControl: "3600",
@@ -1281,6 +1303,7 @@ function App() {
     }
 
     const bucket = supabaseConfig.buckets.split;
+    await loadFileManifest(bucket);
     const uploaded = [];
 
     for (const item of matchedFiles) {
@@ -1321,13 +1344,10 @@ function App() {
 
     const bucket = supabaseConfig.buckets.split;
     const folder = newSplitFolderName();
-    const manifest = await loadFileManifest(bucket);
-    manifest.__splitSongs = {
-      ...(manifest.__splitSongs ?? {}),
-      [folder]: { title: title.trim() }
-    };
-    manifest.__splitOrder = [folder, ...(manifest.__splitOrder ?? []).filter((item) => item !== folder)];
-    await saveFileManifest(bucket, manifest);
+    await updateFileManifest(bucket, (manifest) => {
+      manifest.__splitSongs = { ...(manifest.__splitSongs ?? {}), [folder]: { title: title.trim() } };
+      manifest.__splitOrder = [folder, ...(manifest.__splitOrder ?? []).filter((item) => item !== folder)];
+    });
     await refreshSplitLibrary(folder);
   }
 
@@ -1337,15 +1357,12 @@ function App() {
     if (!title?.trim()) return;
 
     const bucket = supabaseConfig.buckets.split;
-    const manifest = await loadFileManifest(bucket);
-    manifest.__splitSongs = {
-      ...(manifest.__splitSongs ?? {}),
-      [song.id]: {
-        ...(manifest.__splitSongs?.[song.id] ?? {}),
-        title: title.trim()
-      }
-    };
-    await saveFileManifest(bucket, manifest);
+    await updateFileManifest(bucket, (manifest) => {
+      manifest.__splitSongs = {
+        ...(manifest.__splitSongs ?? {}),
+        [song.id]: { ...(manifest.__splitSongs?.[song.id] ?? {}), title: title.trim() }
+      };
+    });
     await refreshSplitLibrary(song.id);
   }
 
@@ -1357,6 +1374,7 @@ function App() {
     if (!ok) return;
 
     const bucket = supabaseConfig.buckets.split;
+    await loadFileManifest(bucket);
     const { error } = await supabase.storage.from(bucket).remove([path]);
     if (error) {
       window.alert(`삭제 실패: ${error.message}`);
@@ -1376,6 +1394,7 @@ function App() {
     setIsPlaying(false);
 
     const bucket = supabaseConfig.buckets.split;
+    await loadFileManifest(bucket);
     const paths = Object.values(song.splitTrackPaths ?? {}).filter(Boolean);
     if (paths.length) {
       const { error } = await supabase.storage.from(bucket).remove(paths);
@@ -1385,13 +1404,11 @@ function App() {
       }
     }
 
-    const manifest = await loadFileManifest(bucket);
-    delete manifest.__splitSongs?.[song.id];
-    manifest.__splitOrder = (manifest.__splitOrder ?? []).filter((item) => item !== song.id);
-    paths.forEach((path) => {
-      delete manifest[path];
+    await updateFileManifest(bucket, (manifest) => {
+      delete manifest.__splitSongs?.[song.id];
+      manifest.__splitOrder = (manifest.__splitOrder ?? []).filter((item) => item !== song.id);
+      paths.forEach((path) => { delete manifest[path]; });
     });
-    await saveFileManifest(bucket, manifest);
     await refreshSplitLibrary("");
   }
 
@@ -1400,8 +1417,9 @@ function App() {
     if (!supabase || !files.length) return;
 
     const bucket = supabaseConfig.buckets.score;
+    await loadFileManifest(bucket);
     for (const item of files) {
-      const folder = song?.id && song.id !== "empty" ? song.id : "common";
+      const folder = song?.id && song.id !== "empty" ? song.scoreFolder || song.id : "common";
       const path = `${folder}/${uniqueFileName(item)}`;
       const { error } = await supabase.storage.from(bucket).upload(path, item, {
         cacheControl: "3600",
@@ -1425,6 +1443,7 @@ function App() {
     if (!ok) return;
 
     const bucket = supabaseConfig.buckets.score;
+    await loadFileManifest(bucket);
     const { error } = await supabase.storage.from(bucket).remove([sheet.path]);
     if (error) {
       window.alert(`악보 삭제 실패: ${error.message}`);
@@ -1442,13 +1461,10 @@ function App() {
 
     const bucket = supabaseConfig.buckets.album;
     const folder = newAlbumFolderName();
-    const manifest = await loadFileManifest(bucket);
-    manifest.__albumFolders = {
-      ...(manifest.__albumFolders ?? {}),
-      [folder]: { title: title.trim() }
-    };
-    manifest.__albumOrder = [folder, ...(manifest.__albumOrder ?? []).filter((item) => item !== folder)];
-    await saveFileManifest(bucket, manifest);
+    await updateFileManifest(bucket, (manifest) => {
+      manifest.__albumFolders = { ...(manifest.__albumFolders ?? {}), [folder]: { title: title.trim() } };
+      manifest.__albumOrder = [folder, ...(manifest.__albumOrder ?? []).filter((item) => item !== folder)];
+    });
     await refreshAlbumLibrary(folder);
   }
 
@@ -1458,15 +1474,12 @@ function App() {
     if (!title?.trim()) return;
 
     const bucket = supabaseConfig.buckets.album;
-    const manifest = await loadFileManifest(bucket);
-    manifest.__albumFolders = {
-      ...(manifest.__albumFolders ?? {}),
-      [album.id]: {
-        ...(manifest.__albumFolders?.[album.id] ?? {}),
-        title: title.trim()
-      }
-    };
-    await saveFileManifest(bucket, manifest);
+    await updateFileManifest(bucket, (manifest) => {
+      manifest.__albumFolders = {
+        ...(manifest.__albumFolders ?? {}),
+        [album.id]: { ...(manifest.__albumFolders?.[album.id] ?? {}), title: title.trim() }
+      };
+    });
     await refreshAlbumLibrary(album.id);
   }
 
@@ -1478,17 +1491,13 @@ function App() {
     if (answer === null) return;
 
     const bucket = supabaseConfig.buckets.album;
-    const manifest = await loadFileManifest(bucket);
-    manifest.__albumFolders = {
-      ...(manifest.__albumFolders ?? {}),
-      [album.id]: {
-        ...(manifest.__albumFolders?.[album.id] ?? {}),
-        title: album.title,
-        question: question.trim(),
-        answer: answer.trim()
-      }
-    };
-    await saveFileManifest(bucket, manifest);
+    await updateFileManifest(bucket, (manifest) => {
+      manifest.__albumFolders = {
+        ...(manifest.__albumFolders ?? {}),
+        [album.id]: { ...(manifest.__albumFolders?.[album.id] ?? {}),
+          title: album.title, question: question.trim(), answer: answer.trim() }
+      };
+    });
     await refreshAlbumLibrary(album.id);
   }
 
@@ -1501,6 +1510,7 @@ function App() {
     }
 
     const bucket = supabaseConfig.buckets.album;
+    await loadFileManifest(bucket);
     for (const file of files) {
       const fileName = uniqueJpegFileName(file);
       const path = `${album.id}/${fileName}`;
@@ -1540,6 +1550,7 @@ function App() {
     if (!ok) return;
 
     const bucket = supabaseConfig.buckets.album;
+    await loadFileManifest(bucket);
     const removePaths = [image.path, image.thumbnailPath].filter(Boolean);
     const { error } = await supabase.storage.from(bucket).remove(removePaths);
     if (error) {
@@ -1558,6 +1569,7 @@ function App() {
     if (!ok) return;
 
     const bucket = supabaseConfig.buckets.album;
+    await loadFileManifest(bucket);
     const paths = album.images.flatMap((image) => [image.path, image.thumbnailPath]).filter(Boolean);
     if (paths.length) {
       const { error } = await supabase.storage.from(bucket).remove(paths);
@@ -1567,11 +1579,7 @@ function App() {
       }
     }
 
-    const manifest = await loadFileManifest(bucket);
-    paths.forEach((path) => {
-      delete manifest[path];
-    });
-    await saveFileManifest(bucket, manifest);
+    await updateFileManifest(bucket, (manifest) => { paths.forEach((path) => { delete manifest[path]; }); });
     await refreshAlbumLibrary(album.id);
   }
 
@@ -1619,6 +1627,12 @@ function App() {
     window.alert("정답이 아닙니다.");
   }
 
+  function runStorageAction(action) {
+    const report = (error) => { window.alert(`변경 실패: ${error.message}`); };
+    try { return Promise.resolve(action()).catch(report); }
+    catch (error) { report(error); return Promise.resolve(); }
+  }
+
   return (
     <div className={isAdminMode ? "app-shell admin-mode" : "app-shell"}>
       <header className="topbar">
@@ -1641,6 +1655,10 @@ function App() {
           >
             <Metronome size={19} />
           </button>
+          <button className={isTunerOpen ? "icon-button tuner-button active" : "icon-button tuner-button"}
+            type="button" title="튜너 열기" aria-label="튜너 열기" aria-expanded={isTunerOpen}
+            onClick={() => { setIsTunerOpen(true); setActiveFloatingWindow("tuner"); }}
+            onKeyDown={(event) => event.stopPropagation()}><AudioLines size={19} /></button>
           <button
             className={isAdminMode ? "lock-button active" : "lock-button"}
             type="button"
@@ -1699,15 +1717,17 @@ function App() {
             folderControls={activeTab === "practice" && (
               <PracticeFolderToolbar
                 folders={practiceFolders} songs={practiceSongs} selectedId={selectedPracticeFolderId}
-                isAdmin={isAdminMode} busy={isPracticeFolderBusy || Boolean(movingSongPath)}
+                isAdmin={isAdminMode} busy={isPracticeFolderBusy || Boolean(movingSongPath) || isUploadingSong}
                 onSelect={changePracticeFolder} onAdd={addPracticeFolder}
                 onRename={renamePracticeFolder} onDelete={deletePracticeFolder}
               />
             )}
             isAdmin={isAdminMode}
-            onUploadSong={(song, file) => uploadSongFile(song, file, activeTab)}
-            onRenameSong={renameSong}
-            onDeleteSong={deleteSong}
+            onUploadSong={(song, file) => runStorageAction(() => uploadSongFile(song, file, activeTab))}
+            onRenameSong={(song, title) => runStorageAction(() => renameSong(song, title))}
+            onDeleteSong={(song) => runStorageAction(() => deleteSong(song))}
+            isSongBusy={isUploadingSong || Boolean(movingSongPath)}
+            onRetry={() => refreshLibrary(undefined, activeTab)}
             onMoveSong={moveSongToLibrary}
             movingSongPath={movingSongPath}
             onReorderSongs={(from, to) => activeTab === "practice"
@@ -1716,7 +1736,7 @@ function App() {
             practiceSelection={activeTab === "practice" && isAdminMode ? {
               active: isPracticeSelecting,
               paths: selectedPracticePaths,
-              busy: isPracticeFolderBusy || Boolean(movingSongPath),
+              busy: isPracticeFolderBusy || Boolean(movingSongPath) || isUploadingSong,
               onToggle: () => {
                 setIsPracticeSelecting((active) => !active);
                 setSelectedPracticePaths(new Set());
@@ -1751,13 +1771,16 @@ function App() {
             setDuration={setDuration}
             setIsPlaying={setIsPlaying}
             onSplitAudioEnded={handleSplitAudioEnded}
-            onAddSplitSong={addSplitSong}
+            onSplitMetadata={handleSplitMetadata}
+            onSplitTime={handleSplitTime}
+            onSplitError={handleSplitError}
+            onAddSplitSong={() => runStorageAction(addSplitSong)}
             onPlaySplitSong={playSplitSong}
-            onRenameSplitSong={renameSplitSong}
-            onUploadSplitTrack={uploadSplitTrack}
-            onUploadSplitTracks={uploadSplitTracks}
-            onDeleteSplitTrack={deleteSplitTrack}
-            onDeleteSplitSong={deleteSplitSong}
+            onRenameSplitSong={(song) => runStorageAction(() => renameSplitSong(song))}
+            onUploadSplitTrack={(song, key, file) => runStorageAction(() => uploadSplitTrack(song, key, file))}
+            onUploadSplitTracks={(song, files) => runStorageAction(() => uploadSplitTracks(song, files))}
+            onDeleteSplitTrack={(song, key) => runStorageAction(() => deleteSplitTrack(song, key))}
+            onDeleteSplitSong={(song) => runStorageAction(() => deleteSplitSong(song))}
             onReorderSplitSongs={reorderSplitSongs}
           />
         </div>
@@ -1768,8 +1791,8 @@ function App() {
             scoreOrder={sheetOrder}
             sheetStatus={sheetStatus}
             isAdmin={isAdminMode}
-            onUploadSheet={uploadSheetFile}
-            onDeleteSheet={deleteSheetFile}
+            onUploadSheet={(song, file) => runStorageAction(() => uploadSheetFile(song, file))}
+            onDeleteSheet={(sheet) => runStorageAction(() => deleteSheetFile(sheet))}
             onReorderScoreRows={reorderScoreRows}
           />
         )}
@@ -1782,12 +1805,12 @@ function App() {
             unlockedAlbumIds={unlockedAlbumIds}
             onSelectAlbum={setSelectedAlbumId}
             onUnlockAlbum={unlockAlbumAccess}
-            onAddAlbumFolder={addAlbumFolder}
-            onRenameAlbumFolder={renameAlbumFolder}
-            onUpdateAlbumAccess={updateAlbumAccess}
-            onUploadAlbumPhotos={uploadAlbumPhotos}
-            onDeleteAlbumFolder={deleteAlbumFolder}
-            onDeleteAlbumPhoto={deleteAlbumPhoto}
+            onAddAlbumFolder={() => runStorageAction(addAlbumFolder)}
+            onRenameAlbumFolder={(album) => runStorageAction(() => renameAlbumFolder(album))}
+            onUpdateAlbumAccess={(album) => runStorageAction(() => updateAlbumAccess(album))}
+            onUploadAlbumPhotos={(album, files) => runStorageAction(() => uploadAlbumPhotos(album, files))}
+            onDeleteAlbumFolder={(album) => runStorageAction(() => deleteAlbumFolder(album))}
+            onDeleteAlbumPhoto={(album, image) => runStorageAction(() => deleteAlbumPhoto(album, image))}
           />
         )}
         {activeTab === "member" && <KeyboardPanel />}
@@ -1821,6 +1844,8 @@ function App() {
         playSequenceMode={playSequenceMode}
         cyclePlaySequenceMode={cyclePlaySequenceMode}
         onEnded={handleMainAudioEnded}
+        playbackError={playbackError}
+        isStarting={playerMode === "split" && isSplitStarting}
       />
       {lyricsSong && (
         <LyricsWindow
@@ -1829,7 +1854,7 @@ function App() {
           onFocus={() => setActiveFloatingWindow("lyrics")}
           isAdmin={isAdminMode}
           onClose={() => setLyricsSongId("")}
-          onSave={saveSongLyrics}
+          onSave={(song, lyrics) => runStorageAction(() => saveSongLyrics(song, lyrics))}
         />
       )}
       {isMetronomeOpen && (
@@ -1840,6 +1865,8 @@ function App() {
           onClose={() => setIsMetronomeOpen(false)}
         />
       )}
+      {isTunerOpen && <TunerWindow isActive={activeFloatingWindow === "tuner"}
+        onFocus={() => setActiveFloatingWindow("tuner")} onClose={() => setIsTunerOpen(false)} />}
       {isAdminMode && practiceFolderSong && (
         <PracticeSongFolderDialog
           songs={Array.isArray(practiceFolderSong) ? practiceFolderSong : [practiceFolderSong]}
@@ -2144,7 +2171,9 @@ function PlayList({
   onReorderSongs,
   onOpenLyrics,
   onChooseSongFolder,
-  practiceSelection
+  practiceSelection,
+  isSongBusy,
+  onRetry
 }) {
   const selectedIndex = songs.findIndex((song) => song.id === selectedSong.id);
 
@@ -2154,11 +2183,12 @@ function PlayList({
         <h2>{title}</h2>
         <div className="section-actions">
           <span>{libraryStatus}</span>
+          {libraryStatus === "불러오기 실패" && <button className="mini-file-button" type="button" title="곡 목록 다시 불러오기" onClick={onRetry}><RotateCw size={15} /></button>}
           {isAdmin && !practiceSelection?.active && <div className="playlist-order-actions" aria-label="Selected song order">
             <button
               type="button"
               title="Move selected song up"
-              disabled={practiceSelection?.busy || selectedIndex <= 0}
+              disabled={isSongBusy || practiceSelection?.busy || selectedIndex <= 0}
               onClick={() => onReorderSongs?.(selectedIndex, selectedIndex - 1)}
             >
               <ArrowUp size={15} />
@@ -2166,7 +2196,7 @@ function PlayList({
             <button
               type="button"
               title="Move selected song down"
-              disabled={practiceSelection?.busy || selectedIndex === -1 || selectedIndex >= songs.length - 1}
+              disabled={isSongBusy || practiceSelection?.busy || selectedIndex === -1 || selectedIndex >= songs.length - 1}
               onClick={() => onReorderSongs?.(selectedIndex, selectedIndex + 1)}
             >
               <ArrowDown size={15} />
@@ -2178,7 +2208,7 @@ function PlayList({
               type="file"
               accept="audio/*"
               multiple
-              disabled={practiceSelection?.busy}
+              disabled={isSongBusy || practiceSelection?.busy}
               onChange={(event) => {
                 onUploadSong?.(null, event.target.files);
                 event.target.value = "";
@@ -2204,6 +2234,7 @@ function PlayList({
         onOpenLyrics={onOpenLyrics}
         onChooseSongFolder={onChooseSongFolder}
         selection={practiceSelection}
+        busy={isSongBusy}
       />
     </section>
   );
@@ -2388,6 +2419,7 @@ function SongList({
   onOpenLyrics,
   onChooseSongFolder,
   selection,
+  busy = false,
   renderSongAction,
   renderAfterSong
 }) {
@@ -2396,7 +2428,7 @@ function SongList({
   useEffect(() => { if (selection?.active) setEditingId(""); }, [selection?.active]);
 
   function handleSelect(song) {
-    if (selection?.busy) return;
+    if (busy || selection?.busy) return;
     if (selection?.active) selection.onToggleSong(song);
     else onSelect(song);
   }
@@ -2439,7 +2471,7 @@ function SongList({
                   event.stopPropagation();
                   handleSelect(song);
                 }}
-                disabled={selection?.busy}
+                disabled={busy || selection?.busy}
               >
                 {isEditing ? (
                   <input
@@ -2489,7 +2521,7 @@ function SongList({
                   ) : (
                     <>
                       {onChooseSongFolder && (
-                        <button type="button" title="곡의 연습 폴더 변경" disabled={selection?.busy || !song.audioPath} onClick={() => onChooseSongFolder(song)}>
+                        <button type="button" title="곡의 연습 폴더 변경" disabled={busy || selection?.busy || !song.audioPath} onClick={() => onChooseSongFolder(song)}>
                           <FolderInput size={15} />
                         </button>
                       )}
@@ -2498,18 +2530,18 @@ function SongList({
                           type="button"
                           title={movingSongPath === song.audioPath ? "이동 중" : `${song.library === "practice" ? "재생" : "연습"} 탭으로 이동`}
                           aria-label={`${song.library === "practice" ? "재생" : "연습"} 탭으로 이동`}
-                          disabled={selection?.busy || Boolean(movingSongPath) || !song.audioPath}
+                          disabled={busy || selection?.busy || Boolean(movingSongPath) || !song.audioPath}
                           onClick={() => onMoveSong(song)}
                         >
                           <ArrowRightLeft size={15} />
                         </button>
                       )}
-                      <label className="mini-file-button" title="음원 업로드">
+                      <label className="mini-file-button" title="음원 교체">
                         <UploadCloud size={15} />
                         <input
                           type="file"
                           accept="audio/*"
-                          disabled={selection?.busy}
+                          disabled={busy || selection?.busy}
                           onChange={(event) => {
                             onUploadSong?.(song, event.target.files?.[0]);
                             event.target.value = "";
@@ -2519,7 +2551,7 @@ function SongList({
                       <button
                         type="button"
                         title="이름 변경"
-                        disabled={selection?.busy}
+                        disabled={busy || selection?.busy}
                         onClick={() => {
                           setEditingId(song.id);
                           setEditingName(song.title);
@@ -2527,7 +2559,7 @@ function SongList({
                       >
                         <Pencil size={15} />
                       </button>
-                      <button type="button" title="삭제" disabled={selection?.busy} onClick={() => onDeleteSong?.(song)}>
+                      <button type="button" title="삭제" disabled={busy || selection?.busy} onClick={() => onDeleteSong?.(song)}>
                         <Trash2 size={15} />
                       </button>
                     </>
@@ -2560,6 +2592,9 @@ function SplitPanel({
   setDuration,
   setIsPlaying,
   onSplitAudioEnded,
+  onSplitMetadata,
+  onSplitTime,
+  onSplitError,
   onAddSplitSong,
   onPlaySplitSong,
   onRenameSplitSong,
@@ -2584,19 +2619,22 @@ function SplitPanel({
       <audio
         key={song.splitTrackPaths?.[instrument.key] || `${song.id}-${instrument.key}`}
         data-instrument={instrument.key}
+        data-song-id={song.id}
         ref={(node) => {
-          if (node) splitRefs.current[instrument.key] = node;
+          splitRefs.current[instrument.key] = node;
         }}
-        src={song.splitTracks[instrument.key]}
+        src={song.splitTracks[instrument.key] || undefined}
         crossOrigin="anonymous"
         preload="metadata"
         onLoadedMetadata={(event) => {
-          if (instrument.key === "vocal" && isPlayerActive) setDuration(event.currentTarget.duration);
+          if (isPlayerActive) onSplitMetadata?.();
         }}
+        onDurationChange={() => { if (isPlayerActive) onSplitMetadata?.(); }}
         onTimeUpdate={(event) => {
-          if (instrument.key === "vocal" && isPlayerActive) setCurrentTime(event.currentTarget.currentTime);
+          if (isPlayerActive) onSplitTime?.(instrument.key, event.currentTarget.currentTime);
         }}
         onEnded={() => onSplitAudioEnded?.(instrument.key)}
+        onError={() => song.splitTracks[instrument.key] && onSplitError?.(instrument.key)}
       />
     ));
 
@@ -2794,8 +2832,9 @@ function ScorePanel({
 
     sheets.forEach((sheet) => {
       const folder = sheet.path.split("/")[0];
-      if (groups[folder]) {
-        groups[folder].push(sheet);
+      const song = songs.find((item) => (item.scoreFolder || item.id) === folder);
+      if (song) {
+        groups[song.id].push(sheet);
       } else {
         extra.push(sheet);
       }
@@ -3561,7 +3600,9 @@ function PlayerBar({
   restartCurrent,
   playSequenceMode,
   cyclePlaySequenceMode,
-  onEnded
+  onEnded,
+  playbackError,
+  isStarting
 }) {
   const canPlay = activeTab === "split"
     ? Object.values(selectedSong.splitTracks ?? {}).some(Boolean)
@@ -3588,12 +3629,13 @@ function PlayerBar({
       <div className="player-head">
         <div className="player-title">
           <strong>{selectedSong.title}</strong>
-          {activeTab === "split" && <span className="mode-badge">분할재생중</span>}
+          {activeTab === "split" && <span className="mode-badge">{isStarting ? "재생 준비 중" : isPlaying ? "분할재생중" : "분할재생"}</span>}
         </div>
         <span>
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
       </div>
+      {playbackError && <p className="player-error" role="alert">{playbackError}</p>}
       <div className="timeline-row">
         <button className="timeline-button" title="처음부터 다시 재생" disabled={!canPlay} onClick={restartCurrent}>
           {"\u21ba"}
@@ -3702,9 +3744,9 @@ function PlayerBar({
           className={isPlaying ? "play-button playing" : "play-button paused"}
           disabled={!canPlay}
           onClick={togglePlay}
-          title={isPlaying ? "일시정지" : "재생"}
+          title={isStarting ? "재생 준비 취소" : isPlaying ? "일시정지" : "재생"}
         >
-          {isPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" />}
+          {isStarting ? <Square size={24} fill="currentColor" /> : isPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" />}
         </button>
         <button onClick={() => seekBy(3)}>+3s</button>
         <button onClick={() => seekBy(5)}>+5s</button>
