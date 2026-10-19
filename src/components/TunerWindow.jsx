@@ -29,7 +29,7 @@ export default function TunerWindow({ isActive, onFocus, onClose }) {
   const reading = tuningReading(signal.frequency, mode.id, stringId, settings.reference);
   const markerPosition = reading ? 50 + clamp(reading.cents, -50, 50) : 50;
   const status = state === "starting" ? "마이크 권한 확인 중" : state !== "listening" ? "마이크 꺼짐"
-    : reading ? reading.direction : "소리를 기다리는 중";
+    : reading ? reading.direction : signal.hasInput ? "음정 분석 중" : "소리를 기다리는 중";
 
   useEffect(() => {
     engineRef.current = createTunerInput({ onReading: setSignal, onState: setState, onError: setError });

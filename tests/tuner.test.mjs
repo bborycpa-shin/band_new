@@ -26,6 +26,36 @@ test("all guitar and 4/5-string bass open strings are detected at common sample 
   }
 });
 
+test("quiet low strings remain measurable below the previous microphone volume gate", () => {
+  const detector = createTunerDetector();
+  for (const sampleRate of [44100, 48000, 96000]) {
+    for (const midi of [23, 28, 40, 45]) {
+      const frequency = midiFrequency(midi);
+      const input = signal(frequency, sampleRate, 0.01).map(value => value * 0.005);
+      const reading = detector.detect(input, sampleRate);
+      assert(reading.hasInput);
+      assert(reading.level > 0);
+      assert(reading.frequency, `Quiet MIDI ${midi} at ${sampleRate}Hz was rejected`);
+      assert(Math.abs(1200 * Math.log2(reading.frequency / frequency)) < 2);
+    }
+  }
+});
+
+test("decaying guitar low strings tolerate microphone noise without losing pitch", () => {
+  const detector = createTunerDetector();
+  for (const frequency of [midiFrequency(40), midiFrequency(45)]) {
+    let seed = 12345;
+    const input = signal(frequency, 48000).map((value, index) => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return value * 0.1 * Math.exp(-index / 48000 / 0.07) + 0.01 * (seed / 2 ** 32 - 0.5);
+    });
+    const reading = detector.detect(input, 48000);
+    assert(reading.clarity < 0.9, "This is a regression fixture rejected by the old confidence gate");
+    assert(reading.frequency, `Decaying ${frequency}Hz was rejected`);
+    assert(Math.abs(1200 * Math.log2(reading.frequency / frequency)) < 15);
+  }
+});
+
 test("silence, quiet inputs, unpitched noise and out-of-range tones do not produce notes", () => {
   const detector = createTunerDetector();
   assert.equal(detector.detect(new Float32Array(tunerFrameSize), 48000).frequency, null);
@@ -63,10 +93,21 @@ test("display smoothing rejects a single unstable note and clears stale input", 
   assert.equal(smoother.update(110, 0), null);
   assert.equal(smoother.update(110, 60), 110);
   assert.equal(smoother.update(110.2, 120), 110);
-  assert.equal(smoother.update(220, 180), null);
+  assert.equal(smoother.update(220, 180), 110);
   assert.equal(smoother.update(220, 240), 220);
   assert.equal(smoother.update(null, 300), 220);
-  assert.equal(smoother.update(null, 600), null);
+  assert.equal(smoother.update(null, 900), null);
+});
+
+test("lower-confidence pitches require repeated agreement and unstable noise cannot renew a stale note", () => {
+  const smoother = createPitchSmoother();
+  assert.equal(smoother.update(82.4, 0, 0.75), null);
+  assert.equal(smoother.update(82.5, 60, 0.75), null);
+  assert.equal(smoother.update(82.3, 120, 0.75), 82.4);
+  assert.equal(smoother.update(null, 400), 82.4);
+  for (let index = 0; index < 6; index++) smoother.update(index % 2 ? 150 : 220, 460 + index * 60, 0.75);
+  assert.equal(smoother.update(300, 820, 0.75), null);
+  assert.equal(smoother.update(110, 2000), null, "A long gap starts a new candidate");
 });
 
 function inputFixture({ pending = false, denied = false, brokenContext = false } = {}) {
@@ -93,7 +134,7 @@ function inputFixture({ pending = false, denied = false, brokenContext = false }
       const context = { state: "suspended", sampleRate: 48000, destination: {}, nodes: [],
         async resume() { this.state = "running"; }, async close() { this.state = "closed"; },
         createMediaStreamSource() { const n = node(); this.nodes.push(n); return n; },
-        createBiquadFilter() { const n = { ...node(), frequency: { value: 0 } }; this.nodes.push(n); return n; },
+        createBiquadFilter() { const n = { ...node(), frequency: { value: 0 }, Q: { value: 0 } }; this.nodes.push(n); return n; },
         createAnalyser() { const n = { ...node(), getFloatTimeDomainData(input) { input.set(signal(41.2034446, 48000)); } }; this.nodes.push(n); return n; }
       };
       contexts.push(context); return context;

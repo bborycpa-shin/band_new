@@ -8,6 +8,8 @@ export const tunerModes = [
 ];
 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 export const tunerFrameSize = 8192;
+const minimumInputRms = 0.0002;
+const minimumPitchClarity = 0.7;
 
 export function midiFrequency(midi, reference = 440) {
   return reference * 2 ** ((midi - 69) / 12);
@@ -34,7 +36,7 @@ export function tuningReading(frequency, modeId = "guitar", stringId = "auto", r
 
 export function createTunerDetector(size = tunerFrameSize) {
   const detector = PitchDetector.forFloat32Array(size);
-  detector.minVolumeAbsolute = 0.003;
+  detector.minVolumeAbsolute = minimumInputRms;
   detector.clarityThreshold = 0.9;
   return {
     detect(input, sampleRate) {
@@ -42,8 +44,9 @@ export function createTunerDetector(size = tunerFrameSize) {
       for (const value of input) energy += value * value;
       const rms = Math.sqrt(energy / input.length);
       const [frequency, clarity] = detector.findPitch(input, sampleRate);
-      return { frequency: clarity >= 0.9 && frequency >= 25 && frequency <= 1400 ? frequency : null,
-        clarity, level: rms ? Math.min(1, Math.max(0, (20 * Math.log10(rms) + 60) / 48)) : 0 };
+      return { frequency: clarity >= minimumPitchClarity && frequency >= 25 && frequency <= 1400 ? frequency : null,
+        clarity, hasInput: rms >= minimumInputRms,
+        level: rms ? Math.min(1, Math.max(0, (20 * Math.log10(rms) + 80) / 68)) : 0 };
     }
   };
 }
@@ -51,16 +54,25 @@ export function createTunerDetector(size = tunerFrameSize) {
 export function createPitchSmoother() {
   let samples = [];
   let lastGoodAt = -Infinity;
+  let displayed = null;
+  let displayedAt = -Infinity;
+  const holdMs = 650;
   return {
-    update(frequency, now) {
+    update(frequency, now, clarity = 1) {
+      if (now - lastGoodAt > holdMs) samples = [];
+      if (now - displayedAt > holdMs) displayed = null;
       if (!Number.isFinite(frequency) || frequency <= 0) {
-        if (now - lastGoodAt > 350) samples = [];
-        return samples.length >= 2 ? [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)] : null;
+        return displayed;
       }
       if (samples.length && Math.abs(1200 * Math.log2(frequency / samples.at(-1))) > 80) samples = [];
       samples = [...samples, frequency].slice(-3);
       lastGoodAt = now;
-      return samples.length >= 2 ? [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)] : null;
+      // Quieter, less periodic plucks need repeated agreement, not a stricter volume gate.
+      if (samples.length >= (clarity >= 0.85 ? 2 : 3)) {
+        displayed = [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)];
+        displayedAt = now;
+      }
+      return displayed;
     }
   };
 }
@@ -89,7 +101,7 @@ export function createTunerInput({ onReading, onState, onError }, environment = 
       track.removeEventListener("ended", session.onEnded);
       track.stop();
     });
-    for (const node of [session.source, session.filter, session.analyser]) {
+    for (const node of [session.source, session.filter, session.lowpass, session.analyser]) {
       try { node?.disconnect(); } catch { /* The input may already be disconnected. */ }
     }
     if (session.context?.state !== "closed") session.context?.close().catch(() => {});
@@ -127,11 +139,16 @@ export function createTunerInput({ onReading, onState, onError }, environment = 
         session.filter = session.context.createBiquadFilter();
         session.filter.type = "highpass";
         session.filter.frequency.value = 20;
+        session.lowpass = session.context.createBiquadFilter();
+        session.lowpass.type = "lowpass";
+        session.lowpass.frequency.value = 1000;
+        session.lowpass.Q.value = Math.SQRT1_2;
         session.analyser = session.context.createAnalyser();
         session.analyser.fftSize = tunerFrameSize;
         session.analyser.smoothingTimeConstant = 0;
         session.source.connect(session.filter);
-        session.filter.connect(session.analyser);
+        session.filter.connect(session.lowpass);
+        session.lowpass.connect(session.analyser);
         const input = new Float32Array(tunerFrameSize);
         const detector = createTunerDetector();
         const smoother = createPitchSmoother();
@@ -149,7 +166,7 @@ export function createTunerInput({ onReading, onState, onError }, environment = 
               lastFrameAt = now;
               session.analyser.getFloatTimeDomainData(input);
               const detected = detector.detect(input, session.context.sampleRate);
-              onReading({ ...detected, frequency: smoother.update(detected.frequency, now) });
+              onReading({ ...detected, frequency: smoother.update(detected.frequency, now, detected.clarity) });
             }
             frameId = schedule(read);
           } catch (error) { stop(); onError(tunerErrorMessage(error)); }
